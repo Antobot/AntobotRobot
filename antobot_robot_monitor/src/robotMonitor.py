@@ -466,7 +466,7 @@ class robotMonitor():
             
 
 def main():
-    rospy.init_node ('moveMonitor') 
+    rospy.init_node ('robotMonitor') 
     rate = rospy.Rate(1)
     moveMgr = robotMonitor()
     while not rospy.is_shutdown():
