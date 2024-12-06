@@ -4,7 +4,7 @@
   <version>0.0.0</version>
   <description>The antobot_robot_monitor package, which contains the code to monitor basic robot movement parameters</description>
 
-  <maintainer email="daniel.freer@antobot.ai">Daniel Freer</maintainer>
+  <maintainer email="support@antobot.ai">support</maintainer>
 
   <license>BSD</license>
 
@@ -26,5 +26,9 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>antobot_manager_jobs</exec_depend>
+
+  <export>
+    <python path="${prefix}/src"/>
+  </export>
 
 </package>

@@ -10,6 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
   antobot_platform_msgs
 )
 
+catkin_python_setup()
 
 catkin_package(
 )

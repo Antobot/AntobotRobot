@@ -9,8 +9,6 @@
 #                           whether the robot has been stuck (i.e. a command is being sent, but the robot has stopped moving),
 #                           if the robot is angled too much in pitch or roll, and also tracks the robot's mileage over time.
 
-# Contacts: daniel.freer@antobot.ai
-
 # # # #  # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
 import time
