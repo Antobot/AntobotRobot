@@ -20,7 +20,7 @@ from datetime import date
 import yaml
 from pathlib import Path
 
-from math import radians, cos, sin, asin, sqrt, isnan, pi
+from math import radians, cos, sin, asin, sqrt, isnan, pi, atan2
 import numpy as np
 
 import rospy
@@ -32,13 +32,18 @@ from std_msgs.msg import Float32, Bool, UInt8
 from sensor_msgs.msg import NavSatFix, Imu
 from geometry_msgs.msg import Twist
 
-# from antobot_platform_msgs.srv import moveMonitorInfo, moveMonitorInfoResponse
 
 
 class robotMonitor():
 
     def __init__(self):
 
+        
+                
+        self.As_lat_past = []
+        self.As_lon_past = []
+        self.As_lat = None
+        self.As_lon = None
         self.b_robot_movement = False # default robot is not move
         self.u_robot_movement_cnt = 0
 
@@ -54,11 +59,7 @@ class robotMonitor():
         self.cmdVel_angular_buffer = []
         self.cmdVel_spotTurn_consistency = False
         self.cmdVel_straight_consistency = False
-        
-        self.As_lat_past = []
-        self.As_lon_past = []
-        self.As_lat = None
-        self.As_lon = None
+
         
         self.stuck_spotTurn = False
         self.stuck_spotTurn_t = time.time()
@@ -77,9 +78,20 @@ class robotMonitor():
         self.pitch_lvl = 0
         self.roll_lvl = 0
 
-        self.imu_freq = 25
-        self.imu_buffer_size = 1        # The buffer size (in seconds) to filter IMU data
+        self.imu_freq = 20 # how many imu msgs in 1 second
+        self.imu_buffer_Hz = 10        # Hz to check the imu orientation
         self.imu_buffer = []
+        self.imu_buffer_len = int(self.imu_freq/self.imu_buffer_Hz)
+        self.imu_update_time = time.time()
+        #print(self.imu_buffer_len)
+
+        self.pitch_thresh_low = 10*pi/180
+        self.pitch_thresh_med = 15*pi/180
+        self.pitch_thresh_high = 20*pi/180
+
+        self.roll_thresh_low = 10*pi/180
+        self.roll_thresh_med = 15*pi/180
+        self.roll_thresh_high = 20*pi/180
 
 
         self.sim = rospy.get_param("/simulation",False)
@@ -97,9 +109,12 @@ class robotMonitor():
 
         # Publish safety critical data
         self.pub_error_lv1_stk = rospy.Publisher("/as/error_lv1_stk",Bool,queue_size =1)
+        self.pub_error_lv1_tilt = rospy.Publisher("/as/error_lv1_tilt",Bool,queue_size =1)
         self.pub_robot_stuck = rospy.Publisher("/as/robot_stuck", UInt8, queue_size = 1)
 
-        return
+        self.tiltTimer = rospy.Timer(rospy.Duration(1.0/self.imu_buffer_Hz), self.check_imu)
+
+
 
     def cmdVel_consistency_check(self):
         # Just do a simple average check to see if it was consistently spot turning or moving forward
@@ -120,13 +135,15 @@ class robotMonitor():
         # # # Determines whether the robot is currently stuck (i.e. commands are being sent, but the robot isn't moving)
         
         self.cmdVel_consistency_check()
+        #print(self.cmdVel_straight_consistency)
+        #print(self.cmdVel_spotTurn_consistency)
 
-        self.As_uAlarm = 0
+
 
         # Stuck during spot turn (indicated by IMU)
         if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
             self.robot_movement_distance()
-            if self.cmdVel_spotTurn_consistency and self.robot_yaw5 < 3 and self.robot_movement_dist5 < 1:    # if robot hasn't moved 3 degs or more in the last 5 seconds and less than 1m movedment in gps position
+            if self.cmdVel_spotTurn_consistency and abs(self.robot_yaw5) < 0.05 and self.robot_movement_dist5 < 1:    # if robot hasn't moved 3 degs or more in the last 5 seconds and less than 1m movedment in gps position
                 if self.stuck_spotTurn is not True:
                     self.stuck_spotTurn_t = time.time() # will report 5 secons later as it checks for consistency
                     self.stuck_spotTurn_f = True
@@ -139,7 +156,6 @@ class robotMonitor():
         # Stuck while moving straight(-ish)
         if abs(self.cmdVel_linear.x) > 0.1: # and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
             self.robot_movement_distance()
-
             if self.cmdVel_straight_consistency and self.robot_movement_dist5 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
                 if self.stuck_straightMove is not True:
                     self.stuck_straightMove_t = time.time() # will report 5 secons later as it checks for consistency
@@ -162,10 +178,12 @@ class robotMonitor():
         self.error_lv_report()
 
         # Report if either form of stuck is occuring
-        if ((self.stuck_straightMove_lvl>0) or (self.stuck_spotTurn_lvl>0)) or (abs(self.roll_lvl) == 3) or (abs(self.pitch_lvl)==3):
+        if ((self.stuck_straightMove_lvl>0) or (self.stuck_spotTurn_lvl>0)):
             self.pub_error_lv1_stk.publish(True)
         else:
             self.pub_error_lv1_stk.publish(False)
+
+
 
 
     def error_lv_report(self):
@@ -276,6 +294,9 @@ class robotMonitor():
             self.As_lat_past.pop(0)
             self.As_lon_past.pop(0)
 
+
+
+
     def haversine(self,lat1, lon1, lat2, lon2):
         # # # Calculates the distance in meters between two lat/lon pairs
         # Inputs: lat1 - current latitude; lon1 - current longitude; lat2 - previous latitude; lon2 - previous longitude 
@@ -292,47 +313,48 @@ class robotMonitor():
 
         return R * c
 
-    def check_imu(self):
+    def check_imu(self, event = None):
         # # # Checks IMU data to determine whether the robot is rolling, pitching, or turning in a yaw direction
         if len(self.imu_buffer) != 0:
             # Compute the mean of each angle within a buffer
             angles_arr = np.array(self.imu_buffer) 
             angles_avg = np.mean(angles_arr, axis=0) # You shouldn't compute mean angles like this - it doesn't account for moving over 0
 
-            angles_deg = [num*180/pi for num in angles_avg ]
-            print(angles_deg)
             # Performs individual actions for each calculated angle
             try:
-                self.roll_angle(angles_deg)
-                self.pitch_angle(angles_deg)
-                self.yaw_angle(angles_deg)
+                self.roll_angle(angles_avg[0])
+                self.pitch_angle(angles_avg[1])
+                self.yaw_angle(angles_avg[2])
             except IndexError:
                 return
+        #print(self.roll_lvl, self.pitch_lvl)
+        # Report if the robot is tilting too much
+        if (abs(self.roll_lvl) == 3) or (abs(self.pitch_lvl)==3):
+            self.pub_error_lv1_tilt.publish(True)
+        else:
+            self.pub_error_lv1_tilt.publish(False)
+        
 
-    def pitch_angle(self, angles):
+    def pitch_angle(self, pitch):
         # # # Calculates whether the robot is pitching (forward or backward) and to what degree, then logs this information to /rosout
         # Input: angles <Vector3> - [roll, pitch, yaw]
 
-        pitch_thresh_low = 10
-        pitch_thresh_med = 15
-        pitch_thresh_high = 20
-
         pitch_lvl_i = 0
 
-        if angles[1] < 0:       # Robot front is facing up a hill (backward pitch)
-            if abs(angles[1]) > pitch_thresh_high:
+        if pitch < 0:       # Robot front is facing up a hill (backward pitch)
+            if abs(pitch) > self.pitch_thresh_high:
                 pitch_lvl_i = -3
-            elif abs(angles[1]) > pitch_thresh_med:
+            elif abs(pitch) > self.pitch_thresh_med:
                 pitch_lvl_i = -2
-            elif abs(angles[1]) > pitch_thresh_low:
+            elif abs(pitch) > self.pitch_thresh_low:
                 pitch_lvl_i = -1
                 
-        elif angles[1] > 0:     # Robot front is facing down a hill (forward pitch)
-            if abs(angles[1]) > pitch_thresh_high:
+        elif pitch > 0:     # Robot front is facing down a hill (forward pitch)
+            if abs(pitch) > self.pitch_thresh_high:
                 pitch_lvl_i = 3
-            elif abs(angles[1]) > pitch_thresh_med:
+            elif abs(pitch) > self.pitch_thresh_med:
                 pitch_lvl_i = 2
-            elif abs(angles[1]) > pitch_thresh_low:
+            elif abs(pitch) > self.pitch_thresh_low:
                 pitch_lvl_i = 1
                 
         # Logging
@@ -353,30 +375,27 @@ class robotMonitor():
                 rospy.logerr("SN5000: Robot is pitching too far backward!")
             self.pitch_lvl = pitch_lvl_i
 
-    def roll_angle(self, angles):
+    def roll_angle(self, roll):
         # # # Calculates whether the robot is rolling (left or right) and to what degree, then logs this information to /rosout
         # Input: angles <Vector3> - [roll, pitch, yaw]
 
-        roll_thresh_low = 10
-        roll_thresh_med = 15
-        roll_thresh_high = 20
 
         roll_lvl_i = 0
-
-        if angles[0] < 0:       # Robot top is rolling left
-            if abs(angles[0]) > roll_thresh_high:
+        #print(roll,self.roll_thresh_high)
+        if roll < 0:       # Robot top is rolling left
+            if abs(roll) > self.roll_thresh_high:
                 roll_lvl_i = -3
-            elif abs(angles[0]) > roll_thresh_med:
+            elif abs(roll) > self.roll_thresh_med:
                 roll_lvl_i = -2
-            elif abs(angles[0]) > roll_thresh_low:
+            elif abs(roll) > self.roll_thresh_low:
                 roll_lvl_i = -1
                 
-        elif angles[0] > 0:     # Robot top is rolling right
-            if abs(angles[0]) > roll_thresh_high:
+        elif roll > 0:     # Robot top is rolling right
+            if abs(roll) > self.roll_thresh_high:
                 roll_lvl_i = 3
-            elif abs(angles[0]) > roll_thresh_med:
+            elif abs(roll) > self.roll_thresh_med:
                 roll_lvl_i = 2
-            elif abs(angles[0]) > roll_thresh_low:
+            elif abs(roll) > self.roll_thresh_low:
                 roll_lvl_i = 1
 
         # Logging
@@ -398,21 +417,27 @@ class robotMonitor():
             self.roll_lvl = roll_lvl_i
 
 
-    def yaw_angle(self, angles):
+    def yaw_angle(self, yaw):
         # # # Compares current yaw angle to previous, determining whether the robot is turning or not
         # Input: angles <Vector3> - [roll, pitch, yaw]
 
         # If there is historic data to work with
-        if len(self.yaw_past)>0:
+        if len(self.yaw_past)==5:
 
             # Compare against the oldest reading (5 secs old) to check if the robot is stuck
-            self.robot_yaw5 = abs(angles[2] - self.yaw_past[0])
+            rad_diff = yaw-self.yaw_past[0]
+            self.robot_yaw5 = atan2(sin(rad_diff), cos(rad_diff))
+            #self.robot_yaw5 = abs(yaw - self.yaw_past[0])
 
         else: # Assume no motion at the start
-            self.robot_yaw5=0.0
+            self.robot_yaw5=0.1 # reset to a value that won't trigger stuck detection
+            
+        if time.time() - self.imu_update_time > 1.0:
+            #print('update!')
+            # Add the new reading to the list
+            self.yaw_past.append(yaw)
+            self.imu_update_time = time.time() # reset imu update time
 
-        # Add the new reading to the list
-        self.yaw_past.append(angles[2])
 
         # Remove the oldest value in the log
         if len(self.yaw_past)>5:
@@ -437,8 +462,8 @@ class robotMonitor():
 
         angles=[roll, pitch, yaw]
 
-        #print(angles)
-        if len(self.imu_buffer) < self.imu_freq * self.imu_buffer_size:
+
+        if len(self.imu_buffer) < self.imu_buffer_len:
             self.imu_buffer.append(angles)
         else:
             self.imu_buffer.pop(0)
@@ -472,7 +497,7 @@ def main():
     while not rospy.is_shutdown():
         # moveMgr.writeToFile()
         moveMgr.robot_stuck()
-        moveMgr.check_imu()
+
         rate.sleep()
 
 
