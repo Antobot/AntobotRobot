@@ -43,10 +43,8 @@ class robotMonitor():
         self.As_lat = None
         self.As_lon = None
         self.b_robot_movement = False # default robot is not move
-        self.u_robot_movement_cnt = 0
 
         self.As_b_vel_cmd = False
-        self.robot_movement_total = 0
         self.As_bGNSS = False
 
         cmdVel = Twist()
@@ -69,7 +67,6 @@ class robotMonitor():
         self.stuck_straightMove_f = False
         self.stuck_straightMove_lvl = 0
         self.robot_movement_dist5 = 0.0
-        self.robot_movement_dist1 = 0.0
         self.turn = False
         self.yaw_past = []
 
@@ -255,9 +252,11 @@ class robotMonitor():
 
     def robot_movement_distance_reset(self):
         self.robot_movement_dist5=0.0
-        self.robot_movement_dist1=0.0
         self.As_lon_past = []
         self.As_lat_past = []
+        # initialise stuck timer
+        self.stuck_straightMove_t = time.time()
+        self.stuck_spotTurn_t = time.time()
 
     def robot_movement_distance(self):
         # # # Calculates how long the robot has moved since the tracker was last cleared
@@ -265,22 +264,13 @@ class robotMonitor():
         # Returns: total robot movement since last check 
 
         # If there is historic data to work with
-        if len(self.As_lat_past)>0:
-
+        if len(self.As_lat_past)==5:
             # Compare against the oldest reading (5 secs old) to check if the robot is stuck
             self.robot_movement_dist5 = self.haversine(self.As_lat, self.As_lon, self.As_lat_past[0], self.As_lon_past[0])
-
-            # Compare against the latest reading to track movement over time
-            self.robot_movement_dist1 = self.haversine(self.As_lat, self.As_lon, self.As_lat_past[-1], self.As_lon_past[-1])
+            #print(self.robot_movement_dist5)
 
         else: # Assume no motion at the start
             self.robot_movement_dist5=0.0
-            self.robot_movement_dist1=0.0
-
-
-        if (self.As_bGNSS): # Only update the total distance if GPS is good
-            self.u_robot_movement_cnt = self.u_robot_movement_cnt + 1
-            self.robot_movement_total = self.robot_movement_total + self.robot_movement_dist1
 
         if self.As_lat is not None:
             # Add the new reading to the list
