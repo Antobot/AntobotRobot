@@ -15,7 +15,7 @@ find_package(controller_manager_msgs REQUIRED)
 find_package(joint_state_broadcaster REQUIRED)
 find_package(joint_limits REQUIRED)
 
-add_executable(ant_control_node src/ant_control_node.cpp)
+add_executable(ant_control_node src/ant_control.cpp)
 ament_target_dependencies(ant_control_node rclcpp std_msgs controller_manager controller_manager_msgs hardware_interface joint_state_broadcaster joint_limits)
 target_include_directories(ant_control_node PUBLIC include include/antobot_control)
 

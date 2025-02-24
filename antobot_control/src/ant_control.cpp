@@ -1,413 +1,169 @@
-/*
-# Copyright (c) 2023, ANTOBOT LTD.
-# All rights reserved.
+// Copyright 2020 ros2_control Development Team
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+#include "antobot_control/ant_control.hpp"
 
-Description: 	The primary purpose of this code is to serve as a communication channel between the ROS components of
-		the Xavier NX and the the Aurix. This channel goes in 2 directions. It reads information from antobot_robot/cmd_vel 
-		and other relevant ROS topics, converts it to the format defined in AntoBridge, and sends the
-		data to the AntoBridge ROS node via publishers. Likewise, it reads data from AntoBridge using subscribers, and
-		passes this data along to the robot to calculate wheel odometry and other relevant information.
-Inputs:			Command velocity from: /antobot_robot/cmd_vel
-				Sensed wheel velocities: /antobridge/wheel_vel
-
-Outputs:		Desired wheel velocities (rad/s) to: /antobridge/wheel_vel_cmd
-				Updates to the robot_hardware configuration, which calculate odometry, etc.
-
-Contacts: 	daniel.freer@antobot.ai
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
-*/
-
-#include "ros/ros.h"
-#include "std_msgs/String.h"
-#include "std_msgs/Bool.h"
+#include <chrono>
+#include <cmath>
+#include <iomanip>
+#include <limits>
+#include <memory>
 #include <sstream>
-#include <numeric>
-#include "stdlib.h"
+#include <string>
+#include <vector>
 
-#include <antobot_control/ant_control.h>
-#include <joint_limits_interface/joint_limits_interface.h>
-#include <joint_limits_interface/joint_limits.h>
-#include <joint_limits_interface/joint_limits_urdf.h>
-#include <joint_limits_interface/joint_limits_rosparam.h>
+#include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "rclcpp/rclcpp.hpp"
 
-#include <serial/serial.h>
-#include <std_msgs/Float32.h>
-#include <std_msgs/UInt8.h>
-#include <anto_bridge_msgs/UInt8_Array.h>
-#include <anto_bridge_msgs/Float32_Array.h>
-
-using namespace hardware_interface;
-using joint_limits_interface::JointLimits;
-using joint_limits_interface::SoftJointLimits;
-using joint_limits_interface::PositionJointSoftLimitsHandle;
-using joint_limits_interface::PositionJointSoftLimitsInterface;
-using joint_limits_interface::VelocityJointSoftLimitsHandle;
-using joint_limits_interface::VelocityJointSoftLimitsInterface;
-
-
-namespace antobot_hardware_interface
+namespace ros2_control_demo_example_1
 {
-	
-	antobotHardwareInterface::antobotHardwareInterface(rclcpp::NodeHandle& nh) \
-		: nh_(nh)
-	{
-		/* Constructor function - Initialises robot definition and serial port to Aurix, defines the ROS loop
-		and callback function, sends calibration command to stepper motors, turns on lights */
-		// // Inputs: ROS node handle
-		
-		// Initialise robot definition
-		init();
-		init_publishers();
+hardware_interface::CallbackReturn RRBotSystemPositionOnlyHardware::on_init(
+  const hardware_interface::HardwareInfo & info)
+{
+  if (
+    hardware_interface::SystemInterface::on_init(info) !=
+    hardware_interface::CallbackReturn::SUCCESS)
+  {
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+  logger_ = std::make_shared<rclcpp::Logger>(
+    rclcpp::get_logger("controller_manager.resource_manager.hardware_component.system.RRBot"));
+  clock_ = std::make_shared<rclcpp::Clock>(rclcpp::Clock());
 
-		controller_manager_.reset(new controller_manager::ControllerManager(this, nh_));
+  hw_states_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
+  hw_commands_.resize(info_.joints.size(), std::numeric_limits<double>::quiet_NaN());
 
-		// Defines a ROS loop which calls the update() function at a rate of 25Hz
-		nh_.param("/antobot/hardware_interface/loop_hz", loop_hz_, 25.0);
-		ROS_DEBUG_STREAM_NAMED("constructor","Using loop frequency of " << loop_hz_ << " hz");
-		rclcpp::Duration update_freq = rclcpp::Duration(1.0/loop_hz_);
-		non_realtime_loop_ = nh_.createTimer(update_freq, &antobotHardwareInterface::update, this);
+  for (const hardware_interface::ComponentInfo & joint : info_.joints)
+  {
+    // RRBotSystemPositionOnly has exactly one state and command interface on each joint
+    if (joint.command_interfaces.size() != 1)
+    {
+      RCLCPP_FATAL(
+        get_logger(), "Joint '%s' has %zu command interfaces found. 1 expected.",
+        joint.name.c_str(), joint.command_interfaces.size());
+      return hardware_interface::CallbackReturn::ERROR;
+    }
 
-		ROS_INFO_NAMED("hardware_interface", "Loaded robot controller.");
+    if (joint.command_interfaces[0].name != hardware_interface::HW_IF_POSITION)
+    {
+      RCLCPP_FATAL(
+        get_logger(), "Joint '%s' have %s command interfaces found. '%s' expected.",
+        joint.name.c_str(), joint.command_interfaces[0].name.c_str(),
+        hardware_interface::HW_IF_POSITION);
+      return hardware_interface::CallbackReturn::ERROR;
+    }
 
-		wheel_vel_windows = {{0}, {0}, {0}, {0}};
-		wheel_vels_filt.data = {0, 0, 0, 0};
+    if (joint.state_interfaces.size() != 1)
+    {
+      RCLCPP_FATAL(
+        get_logger(), "Joint '%s' has %zu state interface. 1 expected.", joint.name.c_str(),
+        joint.state_interfaces.size());
+      return hardware_interface::CallbackReturn::ERROR;
+    }
 
-	}
+    if (joint.state_interfaces[0].name != hardware_interface::HW_IF_POSITION)
+    {
+      RCLCPP_FATAL(
+        get_logger(), "Joint '%s' have %s state interface. '%s' expected.", joint.name.c_str(),
+        joint.state_interfaces[0].name.c_str(), hardware_interface::HW_IF_POSITION);
+      return hardware_interface::CallbackReturn::ERROR;
+    }
+  }
 
-	antobotHardwareInterface::~antobotHardwareInterface()
-	{
-		
-	}
-
-	void antobotHardwareInterface::init()
-	{
-		/* Robot initialisation - defines joint names, modes, and related variables as read from the yaml file defined in the launchfile. 
-		Defines joint state handles, including joint position handles and joint velocity handles, sets limits for the controller,
-		and registers all information to the ROS hardware interface. */
-		
-		// Get joint names
-		nh_.getParam("/antobot_robot/hardware_interface/joints", joint_names_);
-		if (joint_names_.size() == 0)
-		{
-		  ROS_FATAL_STREAM_NAMED("init","No joints found on parameter server for controller. Did you load the proper yaml file?");
-		}
-		num_joints_ = joint_names_.size();
-
-
-		nh_.getParam("/antobot_robot/hardware_interface/joints_modes", joint_modes_);
-		if (joint_modes_.size() == 0)
-		{
-		  ROS_FATAL_STREAM_NAMED("init","No joint modes found");
-		}
-
-		// Resize vectors
-		joint_position_.resize(num_joints_);
-		joint_velocity_.resize(num_joints_);
-		joint_effort_.resize(num_joints_);
-		joint_commands_.resize(num_joints_);
-
-		// Initialize controller
-		for (int i = 0; i < num_joints_; ++i)
-		{
-			//antobot_driver::Joint joint = antobot1.getJoint(joint_names_[i]);
-
-		  	ROS_DEBUG_STREAM_NAMED("constructor","Loading joint name: " << joint_names_[i]);
-
-		  	// Create joint state interface
-			JointStateHandle jointStateHandle(joint_names_[i], &joint_position_[i], &joint_velocity_[i], &joint_effort_[i]);
-		  	joint_state_interface_.registerHandle(jointStateHandle);
-
-			if (joint_modes_[i] == 0) {
-			  	create_position_joint(i, jointStateHandle);
-			}
-			else {
-				create_velocity_joint(i, jointStateHandle);
-			}
-		}
-
-		init_joint_variables();
-	}
-
-	void antobotHardwareInterface::create_position_joint(int i, JointStateHandle jointStateHandle)
-	{
-		/* Creates and registers a single position-based control joint */
-		
-		// Create position joint interface
-		JointHandle jointPositionHandle(jointStateHandle, &joint_commands_[i]);
-		JointLimits limits;
-	 	SoftJointLimits softLimits;
-
-		softLimits.k_position = HUGE_VAL;
-		softLimits.k_velocity = HUGE_VAL;
-		softLimits.max_position = HUGE_VAL;
-		softLimits.min_position = -HUGE_VAL;
-
-		if (getJointLimits(joint_names_[i], nh_, limits) == false) {
-			ROS_ERROR_STREAM("Cannot set joint limits for " << joint_names_[i]);
-		} else {
-			// Adds joint limits to the position joint soft limits interface
-			PositionJointSoftLimitsHandle jointLimitsHandle(jointPositionHandle, limits, softLimits);
-			positionJointSoftLimitsInterface.registerHandle(jointLimitsHandle);
-		}
-		// Registers joint position handle to the position joint interface
-		position_joint_interface_.registerHandle(jointPositionHandle);
-	}
-
-	void antobotHardwareInterface::create_velocity_joint(int i, JointStateHandle jointStateHandle)
-	{
-		/* Creates and registers a single velocity-based control joint */
-		
-		// Create velocity joint interface
-		JointHandle jointVelocityHandle(jointStateHandle, &joint_commands_[i]);
-		JointLimits limits;
-	 	SoftJointLimits softLimits;
-
-		softLimits.k_position = HUGE_VAL;
-		softLimits.k_velocity = HUGE_VAL;
-		softLimits.max_position = HUGE_VAL;
-		softLimits.min_position = -HUGE_VAL;
-
-		if (getJointLimits(joint_names_[i], nh_, limits) == false) {
-			ROS_ERROR_STREAM("Cannot set joint limits for " << joint_names_[i]);
-		} else {
-			VelocityJointSoftLimitsHandle jointLimitsHandle(jointVelocityHandle, limits, softLimits);
-			velocityJointSoftLimitsInterface.registerHandle(jointLimitsHandle);
-		}
-		// Registers joint velocity handle to the velocity joint interface
-		velocity_joint_interface_.registerHandle(jointVelocityHandle);
-	}
-
-	void antobotHardwareInterface::init_joint_variables()
-	{
-		/* Registers the interfaces for each type of robot joint, and initialises variables to zero */
-		
-		// Registers the interface for each robot joint to the ROS hardware_interface system
-		registerInterface(&joint_state_interface_);
-		registerInterface(&position_joint_interface_);
-		registerInterface(&velocity_joint_interface_);
-
-		registerInterface(&positionJointSoftLimitsInterface);
-		registerInterface(&velocityJointSoftLimitsInterface);
-
-		joint_position_[0] = 0;
-		joint_position_[1] = 0;
-		joint_position_[2] = 0;
-		joint_position_[3] = 0;
-
-		joint_velocity_[0] = 0;
-		joint_velocity_[1] = 0;
-		joint_velocity_[2] = 0;
-		joint_velocity_[3] = 0;
-
-		joint_effort_[0] = 0;
-		joint_effort_[1] = 0;
-		joint_effort_[2] = 0;
-		joint_effort_[3] = 0;
-
-		wheel_vels[0] = 0;
-		wheel_vels[1] = 0;
-		wheel_vels[2] = 0;
-		wheel_vels[3] = 0;
-
-		steer_pos[0] = 0;
-		steer_pos[1] = 0;
-		steer_pos[2] = 0;
-		steer_pos[3] = 0;
-	}
-
-	void antobotHardwareInterface::init_publishers()
-	{
-		/* Initialises ROS publishers which send commands to anto_bridge */
-		
-		wheel_vel_cmd_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/antobridge/wheel_vel_cmd", 1);
-		steer_pos_cmd_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/antobridge/steer_pos_cmd", 1);
-		wheel_vel_filt_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/am/control/wheel_vel_filt", 1);
-	}
-
-	void antobotHardwareInterface::update(const rclcpp::TimerEvent& e)
-	{
-		/* The callback function for the ROS timer defined in the constructor. This will occur at a rate of 25Hz.
-		The main purpose of this function is to call the push_motor_info() and write() functions, which read and write from
-		the AntBridge interface. */
-		
-		_logInfo = "\n";
-		_logInfo += "Joint Position Command:\n";
-		for (int i = 0; i < num_joints_; i++)
-		{
-			std::ostringstream jointCommandStr;
-			jointCommandStr << joint_commands_[i];
-			_logInfo += "  " + joint_names_[i] + ": " + jointCommandStr.str() + "\n";
-		}
-
-		elapsed_time_ = rclcpp::Duration(e.current_real - e.last_real);
-
-		push_motor_info();
-		controller_manager_->update(rclcpp::Time::now(), elapsed_time_);
-		write(elapsed_time_);
-
-	}
-
-	void antobotHardwareInterface::push_motor_info()
-	{
-		/* Pushes motor information from AntoBridge to the ros controller via the ROS-defined hardware interface
-		*/
-
-		if (num_joints_ < 5)	// Included to allow for more complex robots later
-		{
-
-			joint_velocity_[0] = wheel_vels[0];
-			joint_velocity_[1] = wheel_vels[1];
-			joint_velocity_[2] = wheel_vels[2];
-			joint_velocity_[3] = wheel_vels[3];
-
-			double dt;
-			dt = elapsed_time_.toSec();
-
-			joint_position_[0] += wheel_vels[0] * dt;
-			joint_position_[1] += wheel_vels[1] * dt;
-			joint_position_[2] += wheel_vels[2] * dt;
-			joint_position_[3] += wheel_vels[3] * dt;
-
-		}	
-		
-	}
-
-	void antobotHardwareInterface::write(rclcpp::Duration elapsed_time)
-	{
-		/* Writes robot commands from am_control to AntoBridge via ROS publishers */
-
-		std::vector<float> motor_commands;
-		anto_bridge_msgs::Float32_Array wheel_vels_cmd;
-
-		// If the commands are only for the 4 wheel motor commands
-		if (num_joints_ < 5)
-		{
-			for (int i = 0; i < 4; i++)
-			{
-				double command = joint_commands_[i];
-				motor_commands.push_back((float)command);
-			}
-		}
-		else		// If steering of each wheel is also considered
-		{
-			anto_bridge_msgs::Float32_Array steer_pos_cmd;
-			std::vector<float> steer_commands;
-			for (int i = 0; i < num_joints_; i++)
-			{
-				if (i < 5)
-				{
-					double sp_cmd = joint_commands_[i];
-					steer_commands.push_back((float)joint_commands_[i]);
-				}
-				else
-				{
-					double cmd = joint_commands_[i];
-					motor_commands.push_back((float)cmd);
-				}
-			}
-			wheel_vel_cmd_pub.publish(steer_pos_cmd);
-		}
-		
-		wheel_vels_cmd.data = motor_commands;
-		wheel_vel_cmd_pub.publish(wheel_vels_cmd);
-	}
-
-	anto_bridge_msgs::Float32_Array antobotHardwareInterface::filterWheelVels(float wheel_vel_ar[4])
-	{
-		/*  Gets filtered ultrasonic sensor data for each individual sensor, creates the structure
-			for the data to be sent, and returns this to the main USS callback function. */
-		//  Inputs: wheel_vel_ar <float[4]> - the most recent USS data pulled in for each of the 8 sensors
-		//  Returns: uss_dist_filt_all <anto_bridge_msgs::UInt16_Array> - the filtered data to publish
-
-		anto_bridge_msgs::Float32_Array wheel_vel_filt_all;
-		float wheel_vel_filt_i;
-
-		for (int i=0; i<4; i++)
-		{
-			wheel_vel_filt_i = wheelVelFilt_i(wheel_vel_ar[i], i);
-			wheel_vel_filt_all.data.push_back(wheel_vel_filt_i);
-		}
-
-		wheel_vel_filt_pub.publish(wheel_vel_filt_all);
-
-		return wheel_vel_filt_all; 
-	}
-
-	float antobotHardwareInterface::wheelVelFilt_i(float wheel_vel_i, int i)
-	{
-		/*  Calculates filtered data of a single wheel by first formatting data to fit into a predetermined window size,
-			then carrying out the filter (currently a simple minimum magnitude) */
-		//  Inputs: wheel_vel_i <uint16_t> - the newest data received for a particular sensor
-		//          i <int> - the element of the corresponding USS sensor
-
-		wheel_vel_windows[i].push_back(wheel_vel_i);
-
-		if (wheel_vel_windows[i].size() > antobotHardwareInterface::wVel_win_size)
-		{
-			wheel_vel_windows[i] = antobotHardwareInterface::pop_front(wheel_vel_windows[i]);
-		}
-
-		std::vector<float> vec = wheel_vel_windows[i];
-
-		float mean_wheel_vel_ii = std::accumulate(vec.begin(), vec.end(), 0.0) / vec.size();
-		std::vector<float> vec_abs = vec;
-		for (int i = 0; i<vec.size(); i++)
-			vec_abs[i] = abs(vec[i]);
-
-		float wheel_vel_filt_ii = *min_element(vec_abs.begin(), vec_abs.end());
-		if (mean_wheel_vel_ii < 0)
-			wheel_vel_filt_ii *= -1;
-
-		return wheel_vel_filt_ii;
-	}
-	
-	std::vector<float> antobotHardwareInterface::pop_front(std::vector<float> vec)
-	{
-		/*  Simple function to pop off the first element of a vector. */
-		//  Input: vec <std::vector<float>> - a generic float vector of length > 1
-		//  Returns: vec <std::vector<float>> - a generic float vector of length > 0
-		
-		assert(!vec.empty());
-		vec.erase(vec.begin());
-
-		return vec;
-	}
-
-	void antobotHardwareInterface::wheel_vel_Callback(const anto_bridge_msgs::Float32_Array::ConstPtr& msg)
-	{
-		/* Callback function for wheel velocities. Passes the information along to class variables */
-
-		
-		wheel_vels[0] = msg->data[0];
-		wheel_vels[1] = msg->data[1];
-		wheel_vels[2] = msg->data[2];
-		wheel_vels[3] = msg->data[3];
-
-		if (false)
-		{
-			wheel_vels_filt = filterWheelVels(wheel_vels);
-			wheel_vels[0] = wheel_vels_filt.data[0];
-			wheel_vels[1] = wheel_vels_filt.data[1];
-			wheel_vels[2] = wheel_vels_filt.data[2];
-			wheel_vels[3] = wheel_vels_filt.data[3];
-		}
-			
-	}
-	
-	void antobotHardwareInterface::steer_pos_Callback(const anto_bridge_msgs::Float32_Array::ConstPtr& msg)
-	{
-		/* Callback function for wheel velocities. Only applies to more complicated robot designs with steerable wheels
-		Passes the information along to class variables. */
-		
-		//ROS_INFO("Steer pos callback entered!");
-		steer_pos[0] = msg->data[0];
-		steer_pos[1] = msg->data[1];
-		steer_pos[2] = msg->data[2];
-		steer_pos[3] = msg->data[3];
-	}
-
+  return hardware_interface::CallbackReturn::SUCCESS;
 }
+
+hardware_interface::CallbackReturn RRBotSystemPositionOnlyHardware::on_configure(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+
+  // reset values always when configuring hardware
+  for (uint i = 0; i < hw_states_.size(); i++)
+  {
+    hw_states_[i] = 0;
+    hw_commands_[i] = 0;
+  }
+  RCLCPP_INFO(get_logger(), "Successfully configured!");
+
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+std::vector<hardware_interface::StateInterface>
+RRBotSystemPositionOnlyHardware::export_state_interfaces()
+{
+  std::vector<hardware_interface::StateInterface> state_interfaces;
+  for (uint i = 0; i < info_.joints.size(); i++)
+  {
+    state_interfaces.emplace_back(hardware_interface::StateInterface(
+      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_states_[i]));
+  }
+
+  return state_interfaces;
+}
+
+std::vector<hardware_interface::CommandInterface>
+RRBotSystemPositionOnlyHardware::export_command_interfaces()
+{
+  std::vector<hardware_interface::CommandInterface> command_interfaces;
+  for (uint i = 0; i < info_.joints.size(); i++)
+  {
+    command_interfaces.emplace_back(hardware_interface::CommandInterface(
+      info_.joints[i].name, hardware_interface::HW_IF_POSITION, &hw_commands_[i]));
+  }
+
+  return command_interfaces;
+}
+
+hardware_interface::CallbackReturn RRBotSystemPositionOnlyHardware::on_activate(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  // command and state should be equal when starting
+  for (uint i = 0; i < hw_states_.size(); i++)
+  {
+    hw_commands_[i] = hw_states_[i];
+  }
+
+  RCLCPP_INFO(get_logger(), "Successfully activated!");
+
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn RRBotSystemPositionOnlyHardware::on_deactivate(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::return_type RRBotSystemPositionOnlyHardware::read(
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+{
+  return hardware_interface::return_type::OK;
+}
+
+hardware_interface::return_type RRBotSystemPositionOnlyHardware::write(
+  const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+{
+  return hardware_interface::return_type::OK;
+}
+
+}  // namespace ros2_control_demo_example_1
+
+int main()
+{}
+
+#include "pluginlib/class_list_macros.hpp"
+
+PLUGINLIB_EXPORT_CLASS(
+  ros2_control_demo_example_1::RRBotSystemPositionOnlyHardware, hardware_interface::SystemInterface)
 
