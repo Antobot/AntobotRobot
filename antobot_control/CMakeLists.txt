@@ -20,8 +20,7 @@ ament_target_dependencies(ant_control_node rclcpp std_msgs controller_manager co
 target_include_directories(ant_control_node PUBLIC include include/antobot_control)
 
 install(
-  DIRECTORY include/${PROJECT_NAME}-00000
-  TARGETS ant_control
+  TARGETS ant_control_node
   DESTINATION lib/${PROJECT_NAME})
 
 
