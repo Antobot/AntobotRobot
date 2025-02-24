@@ -13,16 +13,16 @@ Contacts: 	daniel.freer@antobot.ai
 
 */
 
-#include <antobot_control/ant_control.h>
-#include <rclcpp/rclcpp.hpp>
-#include <std_msgs/msg/int16.hpp>
-#include <std_msgs/msg/int8.hpp>
+#include <antobot_move_control/ant_control.h>
+#include "ros/ros.h"
+#include <std_msgs/Int16.h>
+#include <std_msgs/Int8.h>
 
 int main(int argc, char** argv)
 {
   // Initialises the ROS node and gets the node handle
   rclcpp::init(argc, argv, "am_control");
-  rclcpp::Node nh;
+  rclcpp::NodeHandle nh;
 
   // Defines an antobot_hardware_interface class object using the defined ROS node
   antobot_hardware_interface::antobotHardwareInterface antobot1(nh);
@@ -31,12 +31,12 @@ int main(int argc, char** argv)
   rclcpp::Subscriber sub_vWheel = nh.subscribe("/antobridge/wheel_vel", 10, &antobot_hardware_interface::antobotHardwareInterface::wheel_vel_Callback, &antobot1);
 
   // Send message indicating node is launched
-  // ROS_INFO("SW1000: antobot_control node launched");
+  ROS_INFO("W1000: am_control node launched");
 
   // NOTE: We run the ROS loop in a separate thread as external calls such
   // as service callbacks to load controllers can block the (main) control loop
-  rclcpp::executors::MultiThreadedExecutor spinner();
+  rclcpp::MultiThreadedSpinner spinner(2);
   spinner.spin();
-  rclcpp::shutdown();
+
   return 0;
 }

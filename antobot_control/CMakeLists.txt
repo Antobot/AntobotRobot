@@ -1,61 +1,40 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.8)
 project(antobot_control)
 
-add_compile_options(-std=c++11)
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
 
-find_package(catkin REQUIRED COMPONENTS
-  hardware_interface
-  controller_manager
-  roscpp
-  control_msgs
-  trajectory_msgs
-  actionlib
-  pluginlib
-  transmission_interface
-  urdf
-  control_toolbox
-  joint_limits_interface
-  anto_bridge_msgs
-  serial
-  std_msgs
-  message_generation
-)
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(hardware_interface REQUIRED)
+find_package(controller_manager REQUIRED)
+find_package(controller_manager_msgs REQUIRED)
+find_package(joint_state_broadcaster REQUIRED)
+find_package(joint_limits REQUIRED)
 
-catkin_package(
-  INCLUDE_DIRS 
-    include
-  CATKIN_DEPENDS 
-    hardware_interface
-    controller_manager
-    roscpp
-    control_msgs
-    trajectory_msgs
-    pluginlib
-    transmission_interface
-    urdf
-    control_toolbox
-    joint_limits_interface
-    serial
-    std_msgs
-)
-
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS})
-install(DIRECTORY include/${PROJECT_NAME}/
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-  FILES_MATCHING PATTERN "*.h"
-  PATTERN ".svn" EXCLUDE)
-
-add_library(ant_control src/ant_control.cpp)
-target_link_libraries(ant_control
-	${ant_control_LIBRARIES}
-	${catkin_LIBRARIES})
 add_executable(ant_control_node src/ant_control_node.cpp)
-add_dependencies(ant_control_node antobot_move_control anto_bridge_msgs)
+ament_target_dependencies(ant_control_node rclcpp std_msgs controller_manager controller_manager_msgs hardware_interface joint_state_broadcaster joint_limits)
+target_include_directories(ant_control_node PUBLIC include include/antobot_control)
 
-target_link_libraries(ant_control_node
-	ant_control
-	${catkin_LIBRARIES})
+install(
+  DIRECTORY include/${PROJECT_NAME}-00000
+  TARGETS ant_control
+  DESTINATION lib/${PROJECT_NAME})
 
 
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  # the following line skips the linter which checks for copyrights
+  # comment the line when a copyright and license is added to all source files
+  set(ament_cmake_copyright_FOUND TRUE)
+  # the following line skips cpplint (only works in a git repo)
+  # comment the line when this package is in a git repo and when
+  # a copyright and license is added to all source files
+  set(ament_cmake_cpplint_FOUND TRUE)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()

@@ -57,7 +57,7 @@ namespace antobot_hardware_interface
 		public:
 
 			// Initialisation functions
-			antobotHardwareInterface(ros::NodeHandle& nh);
+			antobotHardwareInterface(rclcpp::NodeHandle& nh);
 			~antobotHardwareInterface();
 			void init();
 			void create_position_joint(int i, JointStateHandle jointStateHandle);
@@ -66,9 +66,9 @@ namespace antobot_hardware_interface
 			void init_publishers();
 
 			// Update functions
-			void update(const ros::TimerEvent& e);
+			void update(const rclcpp::TimerEvent& e);
 			void push_motor_info();
-			void write(ros::Duration elapsed_time);
+			void write(rclcpp::Duration elapsed_time);
 
 			// Wheel filter functions
 			anto_bridge_msgs::Float32_Array filterWheelVels(float wheel_vel_ar[4]);
@@ -84,16 +84,16 @@ namespace antobot_hardware_interface
 
 		protected:
 			// ROS node definitions
-			ros::NodeHandle nh_;
-			ros::Timer non_realtime_loop_;
-			ros::Duration control_period_;
-			ros::Duration elapsed_time_;
-			ros::Time calib_time_;
+			rclcpp::NodeHandle nh_;
+			rclcpp::Timer non_realtime_loop_;
+			rclcpp::Duration control_period_;
+			rclcpp::Duration elapsed_time_;
+			rclcpp::Time calib_time_;
 
 			// Publishers
-			ros::Publisher wheel_vel_cmd_pub;
-			ros::Publisher steer_pos_cmd_pub;
-			ros::Publisher wheel_vel_filt_pub;
+			rclcpp::Publisher wheel_vel_cmd_pub;
+			rclcpp::Publisher steer_pos_cmd_pub;
+			rclcpp::Publisher wheel_vel_filt_pub;
 
 			// Joint interfaces
 			PositionJointInterface positionJointInterface;

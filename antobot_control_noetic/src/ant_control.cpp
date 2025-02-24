@@ -27,7 +27,7 @@ Contacts: 	daniel.freer@antobot.ai
 #include <numeric>
 #include "stdlib.h"
 
-#include <antobot_control/ant_control.h>
+#include <antobot_move_control/ant_control.h>
 #include <joint_limits_interface/joint_limits_interface.h>
 #include <joint_limits_interface/joint_limits.h>
 #include <joint_limits_interface/joint_limits_urdf.h>
@@ -51,7 +51,7 @@ using joint_limits_interface::VelocityJointSoftLimitsInterface;
 namespace antobot_hardware_interface
 {
 	
-	antobotHardwareInterface::antobotHardwareInterface(rclcpp::NodeHandle& nh) \
+	antobotHardwareInterface::antobotHardwareInterface(ros::NodeHandle& nh) \
 		: nh_(nh)
 	{
 		/* Constructor function - Initialises robot definition and serial port to Aurix, defines the ROS loop
@@ -67,7 +67,7 @@ namespace antobot_hardware_interface
 		// Defines a ROS loop which calls the update() function at a rate of 25Hz
 		nh_.param("/antobot/hardware_interface/loop_hz", loop_hz_, 25.0);
 		ROS_DEBUG_STREAM_NAMED("constructor","Using loop frequency of " << loop_hz_ << " hz");
-		rclcpp::Duration update_freq = rclcpp::Duration(1.0/loop_hz_);
+		ros::Duration update_freq = ros::Duration(1.0/loop_hz_);
 		non_realtime_loop_ = nh_.createTimer(update_freq, &antobotHardwareInterface::update, this);
 
 		ROS_INFO_NAMED("hardware_interface", "Loaded robot controller.");
@@ -227,7 +227,7 @@ namespace antobot_hardware_interface
 		wheel_vel_filt_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/am/control/wheel_vel_filt", 1);
 	}
 
-	void antobotHardwareInterface::update(const rclcpp::TimerEvent& e)
+	void antobotHardwareInterface::update(const ros::TimerEvent& e)
 	{
 		/* The callback function for the ROS timer defined in the constructor. This will occur at a rate of 25Hz.
 		The main purpose of this function is to call the push_motor_info() and write() functions, which read and write from
@@ -242,10 +242,10 @@ namespace antobot_hardware_interface
 			_logInfo += "  " + joint_names_[i] + ": " + jointCommandStr.str() + "\n";
 		}
 
-		elapsed_time_ = rclcpp::Duration(e.current_real - e.last_real);
+		elapsed_time_ = ros::Duration(e.current_real - e.last_real);
 
 		push_motor_info();
-		controller_manager_->update(rclcpp::Time::now(), elapsed_time_);
+		controller_manager_->update(ros::Time::now(), elapsed_time_);
 		write(elapsed_time_);
 
 	}
@@ -275,7 +275,7 @@ namespace antobot_hardware_interface
 		
 	}
 
-	void antobotHardwareInterface::write(rclcpp::Duration elapsed_time)
+	void antobotHardwareInterface::write(ros::Duration elapsed_time)
 	{
 		/* Writes robot commands from am_control to AntoBridge via ROS publishers */
 
