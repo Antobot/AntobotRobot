@@ -1,5 +1,0 @@
-source;share/antobot_control/local_setup.bash
-source;share/antobot_control/local_setup.dsv
-source;share/antobot_control/local_setup.ps1
-source;share/antobot_control/local_setup.sh
-source;share/antobot_control/local_setup.zsh
