@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "antobot_control/ant_control.hpp"
+#include "antobot_control/ant_control_demo.hpp"
 
 #include <chrono>
 #include <cmath>
