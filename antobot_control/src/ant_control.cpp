@@ -7,6 +7,7 @@
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 
 //#include "antobot_control/ant_control_demo.hpp"
 
@@ -37,6 +38,7 @@ class AntobotControl : public rclcpp::Node
   
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_wheel_vel_cmd_;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_robot_odom_;
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_wheel_vel_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_robot_cmd_vel_;
 
@@ -56,7 +58,6 @@ class AntobotControl : public rclcpp::Node
     {
         auto wheel_vel_cmd_msg = std_msgs::msg::Float32MultiArray();
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
-        //wheel_vel_cmd_msg.layout = 
         wheel_vel_cmd_msg.data = wheel_vel_cmd;
 
         pub_wheel_vel_cmd_->publish(wheel_vel_cmd_msg);
