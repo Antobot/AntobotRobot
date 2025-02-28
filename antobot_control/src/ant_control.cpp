@@ -8,6 +8,8 @@
 #include "std_msgs/msg/float32_multi_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "geometry_msgs/msg/pose_with_covariance.hpp"
+#include "geometry_msgs/msg/twist_with_covariance.hpp"
 
 //#include "antobot_control/ant_control_demo.hpp"
 
@@ -27,7 +29,8 @@ class AntobotControl : public rclcpp::Node
             std::bind(&AntobotControl::wheel_vel_callback, this, _1));
 
         pub_wheel_vel_cmd_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/antobot/control/wheel_vel_cmd", 10);
-        timer_ = this->create_wall_timer(500ms, std::bind(&AntobotControl::timer_callback, this));
+        pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot_robot/odom", 10);
+        timer_ = this->create_wall_timer(40ms, std::bind(&AntobotControl::timer_callback, this));
 
         get_robot_description();
     }
@@ -38,7 +41,7 @@ class AntobotControl : public rclcpp::Node
   
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_wheel_vel_cmd_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_robot_odom_;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_wheel_vel_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_robot_cmd_vel_;
 
@@ -60,12 +63,20 @@ class AntobotControl : public rclcpp::Node
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
         wheel_vel_cmd_msg.data = wheel_vel_cmd;
 
+        auto wheel_odom_msg = nav_msgs::msg::Odometry();
+        get_wheel_odom();
+        
         pub_wheel_vel_cmd_->publish(wheel_vel_cmd_msg);
+        pub_wheel_odom_->publish(wheel_odom_msg);
     }
 
     void wheel_vel_callback(const std_msgs::msg::Float32MultiArray &msg)
     {
         RCLCPP_INFO(this->get_logger(), "in wheel vel callback");
+        wheel_vels[0] = msg.data[0];
+        wheel_vels[1] = msg.data[1];
+        wheel_vels[2] = msg.data[2];
+        wheel_vels[3] = msg.data[3];
     }
 
     void robot_cmd_vel_callback(const geometry_msgs::msg::Twist &msg)
@@ -77,7 +88,7 @@ class AntobotControl : public rclcpp::Node
 
     void get_robot_description()
     {
-        /* Should be read from URDF or other configuration file */
+        /* Should read from URDF or other configuration file */
 
         wheel_base = 0.6;
         wheel_radius = 0.165;
@@ -93,10 +104,49 @@ class AntobotControl : public rclcpp::Node
         wheel_ang_vel_l = (lin_vel + ang_vel * wheel_base/2)/wheel_radius;
         wheel_ang_vel_r = (lin_vel - ang_vel * wheel_base/2)/wheel_radius;
 
+        // TODO: Unit conversions (?)
+
         wheel_vel_cmd.push_back((float)wheel_ang_vel_l);
         wheel_vel_cmd.push_back((float)wheel_ang_vel_l);
         wheel_vel_cmd.push_back((float)wheel_ang_vel_r);
         wheel_vel_cmd.push_back((float)wheel_ang_vel_r);
+
+    }
+
+    void get_wheel_odom()
+    {
+        calc_twist();
+        calc_odom();
+        
+        //  wheel_odom_msg.header = 
+        //  wheel_odom_msg.child_frame_id = 
+        //  wheel_odom_msg.pose_out = 
+        //  wheel_odom_msg.twist_out = 
+    }
+
+    void calc_twist()
+    {
+        auto twist_odom = geometry_msgs::msg::Twist();
+        auto linear_twist = geometry_msgs::msg::Vector3();
+        auto angular_twist = geometry_msgs::msg::Vector3();
+
+        float wheel_ang_vel_l;
+        float wheel_ang_vel_r;
+
+        wheel_ang_vel_l = wheel_vels[0] + wheel_vels[1] / 2;    // Take simple average of most recent wheel velocity information
+        wheel_ang_vel_r = wheel_vels[2] + wheel_vels[3] / 2;    
+
+        // wheel_ang_vel_l + wheel_ang_vel_r = 2 * lin_vel / wheel_radius                  // (from equations in get_motor_commands)
+        linear_twist.x = wheel_radius * (wheel_ang_vel_l + wheel_ang_vel_r) / 2;
+
+        // wheel_ang_vel_l - wheel_ang_vel_r = 2 * ang_vel * wheel_base/2/wheel_radius     // (from equations in get_motor_commands)
+        angular_twist.z = (wheel_ang_vel_l - wheel_ang_vel_r) * wheel_radius / wheel_base;
+
+         
+    }
+
+    void calc_odom()
+    {
 
     }
 };
