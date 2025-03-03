@@ -53,6 +53,7 @@ class AntobotControl : public rclcpp::Node
     std::vector<float> wheel_vel_cmd;
     float wheel_base;                       // The distance between the left and right wheels, in meters
     float wheel_radius;
+    nav_msgs::msg::Odometry wheel_odom_msg;
 
 
     // Functions
@@ -63,7 +64,7 @@ class AntobotControl : public rclcpp::Node
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
         wheel_vel_cmd_msg.data = wheel_vel_cmd;
 
-        auto wheel_odom_msg = nav_msgs::msg::Odometry();
+        wheel_odom_msg = nav_msgs::msg::Odometry();
         get_wheel_odom();
         
         pub_wheel_vel_cmd_->publish(wheel_vel_cmd_msg);
@@ -115,16 +116,36 @@ class AntobotControl : public rclcpp::Node
 
     void get_wheel_odom()
     {
-        calc_twist();
-        calc_odom();
+        geometry_msgs::msg::TwistWithCovariance twist_cov;
+        geometry_msgs::msg::PoseWithCovariance pose_cov;
+        
+        twist_cov.twist = calc_twist();
+        std::array<double, 36> twist_cov_cov;
+        twist_cov_cov =         {0.001, 0.0,    0.0,    0.0,    0.0,    0.0, 
+                                 0.0,   0.001,  0.0,    0.0,    0.0,    0.0,
+                                 0.0,   0.0,    0.001,  0.0,    0.0,    0.0, 
+                                 0.0,   0.0,    0.0,    0.001,  0.0,    0.0, 
+                                 0.0,   0.0,    0.0,    0.0,    0.001,  0.0, 
+                                 0.0,   0.0,    0.0,    0.0,    0.0,    0.03};
+        twist_cov.covariance = twist_cov_cov;
+
+        pose_cov.pose = calc_odom();
+        std::array<double, 36> pose_cov_cov;
+        pose_cov_cov =          {0.001, 0.0,    0.0,    0.0,    0.0,    0.0, 
+                                 0.0,   0.001,  0.0,    0.0,    0.0,    0.0,
+                                 0.0,   0.0,    0.001,  0.0,    0.0,    0.0, 
+                                 0.0,   0.0,    0.0,    0.001,  0.0,    0.0, 
+                                 0.0,   0.0,    0.0,    0.0,    0.001,  0.0, 
+                                 0.0,   0.0,    0.0,    0.0,    0.0,    0.03};
+        pose_cov.covariance = pose_cov_cov;
         
         //  wheel_odom_msg.header = 
         //  wheel_odom_msg.child_frame_id = 
-        //  wheel_odom_msg.pose_out = 
-        //  wheel_odom_msg.twist_out = 
+        wheel_odom_msg.pose = pose_cov;
+        wheel_odom_msg.twist = twist_cov;
     }
 
-    void calc_twist()
+    geometry_msgs::msg::Twist calc_twist()
     {
         auto twist_odom = geometry_msgs::msg::Twist();
         auto linear_twist = geometry_msgs::msg::Vector3();
@@ -142,12 +163,18 @@ class AntobotControl : public rclcpp::Node
         // wheel_ang_vel_l - wheel_ang_vel_r = 2 * ang_vel * wheel_base/2/wheel_radius     // (from equations in get_motor_commands)
         angular_twist.z = (wheel_ang_vel_l - wheel_ang_vel_r) * wheel_radius / wheel_base;
 
-         
+        twist_odom.linear = linear_twist;
+        twist_odom.angular = angular_twist;
+
+        return twist_odom;
+
     }
 
-    void calc_odom()
+    geometry_msgs::msg::Pose calc_odom()
     {
+        auto pose_odom = geometry_msgs::msg::Pose();
 
+        return pose_odom;
     }
 };
 
