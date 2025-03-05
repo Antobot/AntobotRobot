@@ -126,14 +126,12 @@ class robotMonitor():
 
 
 
-    def robot_stuck(self): 
+    def robot_stuck(self,event=None): 
         # # # Determines whether the robot is currently stuck (i.e. commands are being sent, but the robot isn't moving)
         
         self.cmdVel_consistency_check()
         #print(self.cmdVel_straight_consistency)
         #print(self.cmdVel_spotTurn_consistency)
-
-
 
         # Stuck during spot turn (indicated by IMU)
         if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
@@ -480,13 +478,9 @@ class robotMonitor():
 
 def main():
     rospy.init_node ('robotMonitor') 
-    rate = rospy.Rate(1)
     moveMgr = robotMonitor()
-    while not rospy.is_shutdown():
-        # moveMgr.writeToFile()
-        moveMgr.robot_stuck()
-
-        rate.sleep()
+    rospy.Timer(rospy.Duration(1), moveMgr.robot_stuck)  # Runs periodically without blocking
+    rospy.spin() 
 
 
 if __name__ == '__main__':
