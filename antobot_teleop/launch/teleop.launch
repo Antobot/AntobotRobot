@@ -14,19 +14,22 @@
 
 <launch>
 
-  <node name="joy_node" pkg="joy" type="joy_node">
+  <!-- if use_joy is true, use joy_node -->
+  <!-- if use_joy is false, use joy_sbus_node -->
+  <arg name="use_joy" default="true" />
+
+  <node if="$(arg use_joy)" name="joy_node" pkg="joy" type="joy_node">
     <param name="dev" value="/dev/input/js0" />
     <remap from="joy" to="joy_orig"/>
   </node>
-  <!-- remap joy to emulate ps3joy mappings -->
-  <node name="joy_remap" pkg="joy" type="joy_remap.py">
+
+  <node if="$(arg use_joy)" name="joy_remap" pkg="joy" type="joy_remap.py">
     <remap from="joy_in" to="joy_orig"/>
     <remap from="joy_out" to="joy"/>
     <rosparam command="load" file="$(find joy)/config/gamepad.yaml"/>
   </node>
 
-  <!-- AntobotSDK-specific joystick teleoperation node-->
-  <node name="antobot_tel_joy" pkg="antobot_joystick_teleop" type="antobot_tel_joy.py" output="screen"></node>
+  <node name="teleop" pkg="antobot_teleop" type="teleop.py" output="screen"></node>
 
 </launch>
 

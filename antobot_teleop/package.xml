@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>antobot_tel</name>
+  <name>antobot_teleop</name>
   <version>0.0.0</version>
-  <description>The antobot_tel package, which contains the main code for robot teleoperation</description>
+  <description>The antobot_teleop package, which contains the code for robot teleoperation</description>
 
   <maintainer email="daniel.freer@antobot.ai">Daniel Freer</maintainer>
 
@@ -14,6 +14,8 @@
   <build_depend>sensor_msgs</build_depend>
   <build_depend>geometry_msgs</build_depend>
   <build_depend>nav_msgs</build_depend>
+  <build_depend>antobot_manager_jobs</build_depend>
+  <build_depend>control_server</build_depend>
   <build_export_depend>rospy</build_export_depend>
   <build_export_depend>std_msgs</build_export_depend>
   <build_export_depend>sensor_msgs</build_export_depend>
@@ -24,5 +26,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>antobot_manager_jobs</exec_depend>
+  <exec_depend>control_server</exec_depend>
 
 </package>

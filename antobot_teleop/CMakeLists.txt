@@ -1,14 +1,15 @@
-cmake_minimum_required(VERSION 2.8.3)
-project(antobot_joystick_teleop)
+cmake_minimum_required(VERSION 3.0.2)
+project(antobot_teleop)
 
 find_package(catkin REQUIRED COMPONENTS
-  geometry_msgs
-  roscpp
   rospy
-  sensor_msgs
   std_msgs
-  joy
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  control_server
 )
+
 
 catkin_package(
 )
