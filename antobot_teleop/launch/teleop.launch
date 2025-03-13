@@ -15,7 +15,6 @@
 <launch>
 
   <!-- if use_joy is true, use joy_node -->
-  <!-- if use_joy is false, use joy_sbus_node -->
   <arg name="use_joy" default="true" />
 
   <node if="$(arg use_joy)" name="joy_node" pkg="joy" type="joy_node">
