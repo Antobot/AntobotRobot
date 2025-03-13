@@ -2,14 +2,15 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <cmath>
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "geometry_msgs/msg/pose_with_covariance.hpp"
-#include "geometry_msgs/msg/twist_with_covariance.hpp"
+//#include "geometry_msgs/msg/pose_with_covariance.hpp"
+//#include "geometry_msgs/msg/twist_with_covariance.hpp"
 
 //#include "antobot_control/ant_control_demo.hpp"
 
@@ -54,6 +55,8 @@ class AntobotControl : public rclcpp::Node
     float wheel_base;                       // The distance between the left and right wheels, in meters
     float wheel_radius;
     nav_msgs::msg::Odometry wheel_odom_msg;
+    float old_angle;
+    geometry_msgs::msg::Point old_pos;
 
 
     // Functions
@@ -129,7 +132,7 @@ class AntobotControl : public rclcpp::Node
                                  0.0,   0.0,    0.0,    0.0,    0.0,    0.03};
         twist_cov.covariance = twist_cov_cov;
 
-        pose_cov.pose = calc_odom();
+        pose_cov.pose = calc_odom(twist_cov.twist.linear.x, twist_cov.twist.angular.z);
         std::array<double, 36> pose_cov_cov;
         pose_cov_cov =          {0.001, 0.0,    0.0,    0.0,    0.0,    0.0, 
                                  0.0,   0.001,  0.0,    0.0,    0.0,    0.0,
@@ -154,8 +157,8 @@ class AntobotControl : public rclcpp::Node
         float wheel_ang_vel_l;
         float wheel_ang_vel_r;
 
-        wheel_ang_vel_l = wheel_vels[0] + wheel_vels[1] / 2;    // Take simple average of most recent wheel velocity information
-        wheel_ang_vel_r = wheel_vels[2] + wheel_vels[3] / 2;    
+        wheel_ang_vel_l = (wheel_vels[0] + wheel_vels[1]) / 2;    // Take simple average of most recent wheel velocity information
+        wheel_ang_vel_r = (wheel_vels[2] + wheel_vels[3]) / 2;    
 
         // wheel_ang_vel_l + wheel_ang_vel_r = 2 * lin_vel / wheel_radius                  // (from equations in get_motor_commands)
         linear_twist.x = wheel_radius * (wheel_ang_vel_l + wheel_ang_vel_r) / 2;
@@ -170,9 +173,28 @@ class AntobotControl : public rclcpp::Node
 
     }
 
-    geometry_msgs::msg::Pose calc_odom()
+    geometry_msgs::msg::Pose calc_odom(float lin_vel, float ang_vel)
     {
         auto pose_odom = geometry_msgs::msg::Pose();
+        auto new_pos = geometry_msgs::msg::Point();
+        auto new_quat = geometry_msgs::msg::Quaternion();
+
+        float elapsed_time = 0.04;
+
+        // Calculate new angle
+        float new_angle = old_angle + elapsed_time * ang_vel;
+        old_angle = new_angle;
+        new_quat.x = 0;      // Assume 0 because both roll and pitch are 0
+        new_quat.y = 0;      // Assume 0 because both roll and pitch are 0
+        new_quat.z = sin(new_angle/2);
+        new_quat.w = cos(new_angle/2);
+        pose_odom.orientation = new_quat;
+
+        // Calculate new position
+        new_pos.x = old_pos.x + lin_vel * elapsed_time * cos(new_angle);
+        new_pos.y = old_pos.y + lin_vel * elapsed_time * sin(new_angle);
+        pose_odom.position = new_pos;
+        old_pos = new_pos;
 
         return pose_odom;
     }
