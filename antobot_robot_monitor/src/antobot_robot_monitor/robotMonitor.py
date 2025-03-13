@@ -106,6 +106,9 @@ class robotMonitor():
         self.pub_error_lv1_stk = rospy.Publisher("/as/error_lv1_stk",Bool,queue_size =1)
         self.pub_error_lv1_tilt = rospy.Publisher("/as/error_lv1_tilt",Bool,queue_size =1)
         self.pub_robot_stuck = rospy.Publisher("/as/robot_stuck", UInt8, queue_size = 1)
+        
+        # Publish robot movement data
+        self.pub_robot_dist5 = rospy.Publisher("/robotMonitor/robot_dist_5", Float32, queue_size = 1)
 
         self.tiltTimer = rospy.Timer(rospy.Duration(1.0/self.imu_buffer_Hz), self.check_imu)
 
@@ -175,6 +178,9 @@ class robotMonitor():
             self.pub_error_lv1_stk.publish(True)
         else:
             self.pub_error_lv1_stk.publish(False)
+            
+        # Publish robot_movement_dist5
+        self.pub_robot_dist5.publish(self.robot_movement_dist5)
 
 
 
@@ -458,7 +464,6 @@ class robotMonitor():
     def cmdVel_callback(self, data):
         # # # Callback function for cmd_vel data of the robot
         # Input: data <Twist.msg>
-
         self.cmdVel_linear = data.linear
         self.cmdVel_angular = data.angular
         
