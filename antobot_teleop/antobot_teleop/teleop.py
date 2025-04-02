@@ -59,7 +59,7 @@ class MasterTeleop(Node):
         self.soft_shutdown_pub = self.create_publisher(Bool,'/antobridge/soft_shutdown_button',1) # publisher to send the soft shutdown signal to antobridge
 
         # Publisher for physical robot movement
-        self.teleop_cmd_vel_pub = self.create_publisher(Twist,'/teleop/cmd_vel', 5)
+        self.teleop_cmd_vel_pub = self.create_publisher(Twist,'/antobot_ant/cmd_vel', 5)
 
 
 ####################################################################################
