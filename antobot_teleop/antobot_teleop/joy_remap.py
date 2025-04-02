@@ -47,7 +47,7 @@ class RestrictedEvaluator:
             return variables[node.id]
         elif isinstance(node, ast.Subscript) and node.value.id in variables:  # Array access
             var = variables[node.value.id]
-            idx = node.slice.value.n
+            idx = node.slice.n
             if idx < len(var):
                 return var[idx]
             raise IndexError(f"Variable '{node.value.id}' out of range: {idx} >= {len(var)}")
@@ -72,8 +72,8 @@ class JoyRemap(Node):
         self.evaluator = RestrictedEvaluator()
 
         # Declare parameters
-        self.declare_parameter('mappings.buttons', [])
-        self.declare_parameter('mappings.axes', [])
+        self.declare_parameter('mappings.buttons', [""])
+        self.declare_parameter('mappings.axes', [""])
         # Load remapping rules from ROS2 parameters
         self.mappings = self.load_mappings()
 
@@ -88,8 +88,12 @@ class JoyRemap(Node):
 
     def load_mappings(self):
         """Load remapping configurations from parameters"""
-        btn_remap = self.get_parameter('mappings.buttons').get_parameter_value().string_array_value
-        axes_remap = self.get_parameter('mappings.axes').get_parameter_value().string_array_value
+        btn_param = self.get_parameter('mappings.buttons')
+        axes_param = self.get_parameter('mappings.axes')
+        print(btn_param)
+        # Ensure the parameters are of type string array
+        btn_remap = list(btn_param.get_parameter_value().string_array_value)
+        axes_remap = list(axes_param.get_parameter_value().string_array_value)
         self.get_logger().info(f"Loaded remappings: {len(btn_remap)} buttons, {len(axes_remap)} axes")
         return {"buttons": btn_remap, "axes": axes_remap}
 

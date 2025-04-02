@@ -37,6 +37,7 @@ class MasterTeleop(Node):
         self.teleop_method=dict()
         self.teleop_method[0] = teleop_joystick(self)
         self.teleop_method[1] = teleop_keyboard(self)
+        self.teleop_method[1].print_msg()
         self.teleop_mode=None # No method is the default
 
         # Set a timeout, after which a teleop input is no longer considered active
@@ -125,7 +126,9 @@ class MasterTeleop(Node):
 
         if self.trigger_shutdown:
             self.get_logger().info("Xavier will be powered off now")
-            self.soft_shutdown_pub.publish(True)
+            msg = Bool()
+            msg.data = True
+            self.soft_shutdown_pub.publish(msg)
             self.trigger_shutdown = False # Stop from double sending
             # As the robot will immediately begin powering down, there is no need to reset the request#
             # But it does prevent the system constantly resending the same request
@@ -144,7 +147,9 @@ class MasterTeleop(Node):
                 self.trigger_releaseForceStop=False # Stop from double sending
 
                 self.force_stop_release = True
-                self.force_stop_release_pub.publish(self.force_stop_release)
+                msg = Bool()
+                msg.data = self.force_stop_release
+                self.force_stop_release_pub.publish(msg)
             
 
             ######################################
