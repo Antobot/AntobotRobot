@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(antobot_safety)
+project(antobot_safety_noetic)
 find_package(catkin REQUIRED COMPONENTS roscpp pluginlib nodelet dynamic_reconfigure geometry_msgs anto_bridge_msgs)
 
 # pkg-config support

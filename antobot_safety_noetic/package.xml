@@ -1,5 +1,5 @@
 <package>
-  <name>antobot_safety</name>
+  <name>antobot_safety_noetic</name>
   <version>0.0.0</version>
   <description>
      Includes a multiplexer for command velocity inputs. Arbitrates incoming cmd_vel messages from several topics,
