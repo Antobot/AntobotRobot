@@ -21,22 +21,26 @@ from pathlib import Path
 from math import radians, cos, sin, asin, sqrt, isnan, pi, atan2
 import numpy as np
 
-import rospy
+import rclpy
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from rclpy.clock import Clock
 import rospkg
 
-import tf
-from tf.transformations import euler_from_quaternion
+#import tf
+
+from tf_transformations import euler_from_quaternion
 from std_msgs.msg import Float32, Bool, UInt8
 from sensor_msgs.msg import NavSatFix, Imu
 from geometry_msgs.msg import Twist
 
 
 
-class robotMonitor():
+class robotMonitor(Node):
 
     def __init__(self):
 
-        
+        super().__init__('robotMonitor')
                 
         self.As_lat_past = []
         self.As_lon_past = []
@@ -91,27 +95,31 @@ class robotMonitor():
         self.roll_thresh_med = 15*pi/180
         self.roll_thresh_high = 20*pi/180
 
-
-        self.sim = rospy.get_param("/simulation",False)
+        self.declare_parameter("/simulation",False)
+        self.declare_parameter("/antobot_move_path_follow/main_allocate/sim_oscillation_amplitude",0.3)
+        self.declare_parameter("/antobot_move_path_follow/main_allocate/oscillation_amplitude",0.3)
+        #self.sim = rospy.get_param("/simulation",False)
+        self.sim = self.get_parameter("/simulation").value
         if self.sim:
-            self.spotTurn_oscillation_amplitude = rospy.get_param("/antobot_move_path_follow/main_allocate/sim_oscillation_amplitude",0.3)
+            self.spotTurn_oscillation_amplitude = self.get_parameter("/antobot_move_path_follow/main_allocate/sim_oscillation_amplitude").value
         else:
-            self.spotTurn_oscillation_amplitude = rospy.get_param("/antobot_move_path_follow/main_allocate/oscillation_amplitude",0.3)
+            self.spotTurn_oscillation_amplitude = self.get_parameter("/antobot_move_path_follow/main_allocate/oscillation_amplitude").value
 
-
-        # self.pub_total_mileage = rospy.Publisher("/as/total_mileage",Float32,queue_size = 1)
-
-        self.sub_GPS_data = rospy.Subscriber("/antobot_gps",NavSatFix,self.GPS_callback)        # Should raw GPS data be used? What if it stops coming?
-        self.sub_IMU = rospy.Subscriber('/imu/data_corrected', Imu, self.imu_callback)          # Subscriber for imu data corrected
-        self.sub_cmdVel = rospy.Subscriber('/antobot_robot/cmd_vel', Twist, self.cmdVel_callback)    # Subscriber for cmd velocity
+        self.sub_GPS_data = self.create_subscription(NavSatFix,"/antobot_gps",self.GPS_callback,10)        # Should raw GPS data be used? What if it stops coming?
+        self.sub_GPS_data
+        self.sub_IMU = self.create_subscription(Imu,'/imu/data_corrected',  self.imu_callback,10)          # Subscriber for imu data corrected
+        self.sub_cmdVel = self.create_subscription(Twist,'/antobot_robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
 
         # Publish safety critical data
-        self.pub_error_lv1_stk = rospy.Publisher("/as/error_lv1_stk",Bool,queue_size =1)
-        self.pub_error_lv1_tilt = rospy.Publisher("/as/error_lv1_tilt",Bool,queue_size =1)
-        self.pub_robot_stuck = rospy.Publisher("/as/robot_stuck", UInt8, queue_size = 1)
+        self.pub_error_lv1_stk = self.create_publisher(Bool,"/as/error_lv1_stk",1)
+        self.pub_error_lv1_tilt = self.create_publisher(Bool,"/as/error_lv1_tilt",1)
+        self.pub_robot_stuck = self.create_publisher( UInt8, "/as/robot_stuck",1)
 
-        self.tiltTimer = rospy.Timer(rospy.Duration(1.0/self.imu_buffer_Hz), self.check_imu)
+        self.tiltTimer = self.create_timer(1.0/self.imu_buffer_Hz, self.check_imu)
+        self._timer = self.create_timer(1, self.do_publish)
 
+    def do_publish(self):
+        self.robot_stuck()
 
 
     def cmdVel_consistency_check(self):
@@ -164,22 +172,28 @@ class robotMonitor():
         else:
             self.stuck_straightMove = False
 
-
+        msg=UInt8()
         if not self.stuck_spotTurn and not self.stuck_straightMove:
-            self.pub_robot_stuck.publish(0)
+            msg.data = 0
+            self.pub_robot_stuck.publish(msg)
         elif self.stuck_straightMove:
-            self.pub_robot_stuck.publish(1)
+            msg.data =21
+            self.pub_robot_stuck.publish(msg)
         elif self.stuck_spotTurn:
-            self.pub_robot_stuck.publish(2)
+            msg.data = 2
+            self.pub_robot_stuck.publish(msg)
 
 
         self.error_lv_report()
 
         # Report if either form of stuck is occuring
+        msg2=Bool()
         if ((self.stuck_straightMove_lvl>0) or (self.stuck_spotTurn_lvl>0)):
-            self.pub_error_lv1_stk.publish(True)
+            msg2.data = True
+            self.pub_error_lv1_stk.publish(msg2)
         else:
-            self.pub_error_lv1_stk.publish(False)
+            msg2.data = False
+            self.pub_error_lv1_stk.publish(msg2)
 
 
 
@@ -327,10 +341,14 @@ class robotMonitor():
                 return
         #print(self.roll_lvl, self.pitch_lvl)
         # Report if the robot is tilting too much
+        msg = Bool()
+            
         if (abs(self.roll_lvl) == 3) or (abs(self.pitch_lvl)==3):
-            self.pub_error_lv1_tilt.publish(True)
+            msg.data = True
+            self.pub_error_lv1_tilt.publish(msg)
         else:
-            self.pub_error_lv1_tilt.publish(False)
+            msg.data = False
+            self.pub_error_lv1_tilt.publish(msg)
         
 
     def pitch_angle(self, pitch):
@@ -489,14 +507,15 @@ class robotMonitor():
             
 
 def main():
-    rospy.init_node ('robotMonitor') 
-    rate = rospy.Rate(1)
-    moveMgr = robotMonitor()
-    while not rospy.is_shutdown():
-        # moveMgr.writeToFile()
-        moveMgr.robot_stuck()
-
-        rate.sleep()
+    rclpy.init()
+    #rospy.init_node ('robotMonitor') 
+    #rate = rospy.Rate(1)
+    try:
+        rclpy.spin(robotMonitor())
+    except (ExternalShutdownException, KeyboardInterrupt):
+        pass
+    finally:
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
