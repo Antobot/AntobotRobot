@@ -21,7 +21,7 @@ Contacts: 	daniel.freer@antobot.ai
 int main(int argc, char** argv)
 {
   // Initialises the ROS node and gets the node handle
-  ros::init(argc, argv, "am_control");
+  ros::init(argc, argv, "antobot_control");
   ros::NodeHandle nh;
 
   // Defines an antobot_hardware_interface class object using the defined ROS node
@@ -31,7 +31,7 @@ int main(int argc, char** argv)
   ros::Subscriber sub_vWheel = nh.subscribe("/antobridge/wheel_vel", 10, &antobot_hardware_interface::antobotHardwareInterface::wheel_vel_Callback, &antobot1);
 
   // Send message indicating node is launched
-  ROS_INFO("W1000: am_control node launched");
+  ROS_INFO("SW1000: antobot_control node launched");
 
   // NOTE: We run the ROS loop in a separate thread as external calls such
   // as service callbacks to load controllers can block the (main) control loop
