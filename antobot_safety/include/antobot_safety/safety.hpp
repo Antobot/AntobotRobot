@@ -20,11 +20,12 @@ Contacts: 	daniel.freer@antobot.ai
 #include <std_msgs/Int8.h>
 #include <anto_bridge_msgs/UInt8_Array.h>
 #include <anto_bridge_msgs/UInt16_Array.h>
+#include <antobot_platform_msgs/setSafetyLevel.h>
 
 #include <vector>
 #include <numeric>
 
-class AmSafety
+class AntobotSafety
 {
 
     protected:
@@ -86,8 +87,8 @@ class AmSafety
     
     public:
     
-        AmSafety(ros::NodeHandle& nh);
-        ~AmSafety();
+        AntobotSafety(ros::NodeHandle& nh);
+        ~AntobotSafety();
         void update(const ros::TimerEvent& e);
         bool ussDistSafetyCheck();
         bool ussDistSafetyCheck_f();
@@ -110,5 +111,6 @@ class AmSafety
         void bumpFrontCallback(const std_msgs::Bool::ConstPtr& msg);
         void bumpBackCallback(const std_msgs::Bool::ConstPtr& msg);
         int getCmdVelType();
+        bool setSafetyLevel(antobot_platform_msgs::setSafetyLevel::Request &req, antobot_platform_msgs::setSafetyLevel::Response &res);
     
 };
