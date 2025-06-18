@@ -1,0 +1,59 @@
+###########################################################################################################################
+# Copyright (c) 2023, ANTOBOT LTD.
+# All rights reserved.
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+#
+# Description: 	parameters used for local standalone costmap (use with am_costmap_2d)     	  
+# Contacts:     soyoung.kim@antobot.ai
+#
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+# #The default maximum height of any obstacle to be inserted into the costmap in meters. This parameter should be set to be slightly higher than the height of your robot.
+
+
+footprint: [[-0.1, -0.1], [0.1, -0.1], [0.1, 0.1], [-0.1, 0.1]]
+robot_radius: 0.1 # robot radius should be small as 0.1 for updated Lathcoats 
+
+#The obstacle layer tracks the obstacles as read by the sensor data.    
+obstacle_layer:
+    enabled: true
+    combination_method: 1
+    observation_sources:    c16_lidar_sensor_imu_front c16_lidar_sensor_imu_rear c16_lidar_sensor_front c16_lidar_sensor_rear gazebo_mobile_camera_front gazebo_mobile_camera_back
+    c16_lidar_sensor_front: {sensor_frame: laser_link_c16_front, data_type: PointCloud2, observation_persistence: 0.1,  min_obstacle_height: 0.5, max_obstacle_height: 0.7, topic: /c16_front/lslidar_point_cloud, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 11.0}
+    c16_lidar_sensor_rear: {sensor_frame: laser_link_c16_rear, data_type: PointCloud2, observation_persistence: 0.1,  min_obstacle_height: 0.5, max_obstacle_height: 0.7, topic: /c16_rear/lslidar_point_cloud, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 11.0}
+    c16_lidar_sensor_imu_front: {sensor_frame: laser_link_c16_imu_front, data_type: PointCloud2, observation_persistence: 0.1,  min_obstacle_height: 0.5, max_obstacle_height: 0.7, topic: /c16_front/lslidar_point_cloud, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 11.0}
+    c16_lidar_sensor_imu_rear: {sensor_frame: laser_link_c16_imu_rear, data_type: PointCloud2, observation_persistence: 0.1,  min_obstacle_height: 0.5, max_obstacle_height: 0.7, topic: /c16_rear/lslidar_point_cloud, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 11.0}
+    gazebo_mobile_camera_front: {sensor_frame: zed2_front_left_camera_optical_frame, data_type: PointCloud2, min_obstacle_height: 0.0, max_obstacle_height: 1.0, topic: /mobile_base/zed2_front/point_cloud/cloud_registered, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 11.0}
+    gazebo_mobile_camera_back: {sensor_frame: zed2_back_left_camera_optical_frame, data_type: PointCloud2, min_obstacle_height: 0.0, max_obstacle_height: 1.0, topic: /mobile_base/zed2_back/point_cloud/cloud_registered, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 11.0}
+inflation_layer:
+    enabled: true
+    cost_scaling_factor:  5.0  # exponential rate at which the obstacle cost drops off (default: 10)
+    inflation_radius:   0.05  # max. distance from an obstacle at which costs are incurred for planning paths.
+
+# Note that global frame is set to base_link. this makes the local costmap to rotate when the robot is rotating. 
+# using costmap_2d package with this setting had an issue of 'smearing'. Therefore, am_costmap_2d has been created (with modification)
+global_frame: base_link
+robot_base_frame: base_link
+
+#update_frequency parameter determines the frequency, in Hz, at which the costmap will run its update loop
+update_frequency: 3.0
+#publish_frequency parameter determines the rate, in Hz, at which the costmap will publish visualization information.
+publish_frequency: 3.0
+
+#rolling_window parameter to true means that the costmap will remain centered around the robot as the robot moves through the world
+rolling_window: true
+always_send_full_costmap: true
+
+track_unknown_space: false
+#The width, height,and resolution parameters set the width (meters), height (meters), and resolution (meters/cell) of the costmap
+width: 10.0
+height: 10.0
+
+resolution: 0.05
+
+# For local costmap, we use am_costmap_2d. am_costmap_2d clears the costmap every time it updates.
+# am_costmap_2d is only used for local costmap with global_frame set as base_link.
+plugins: 
+- {name: obstacle_layer,    type: "am_costmap_2d::am_ObstacleLayer"}
+- {name: inflation_layer, type: "am_costmap_2d::InflationLayer"}
