@@ -633,7 +633,7 @@ void AntobotSafety::bumpFrontCallback(const std_msgs::Bool::ConstPtr& msg)
                 force_stop_type = 9;
                 t_force_stop = clock();
 		        t_safety_light = clock();
-                ROS_INFO("SF0110: Force stop by Front Bump Switch!", force_stop_type);
+                ROS_INFO("SF0110: Force stop by Front Bump Switch! %d", force_stop_type);
             }
         }
     }
@@ -657,7 +657,7 @@ void AntobotSafety::bumpBackCallback(const std_msgs::Bool::ConstPtr& msg)
                 force_stop_type = 10;
 		        t_force_stop = clock();
 		        t_safety_light = clock();
-                ROS_INFO("SF0111: Force stop by Back Bump Switch!", force_stop_type);
+                ROS_INFO("SF0111: Force stop by Back Bump Switch! %d", force_stop_type);
             }
         }
     }
@@ -714,6 +714,7 @@ int AntobotSafety::getCmdVelType()
 bool AntobotSafety::setSafetyLevel(antobot_platform_msgs::setSafetyLevel::Request &req, antobot_platform_msgs::setSafetyLevel::Response &res)
 {
     safety_level = req.safetyLevel;
+    return 0;
 }
 
 int main(int argc, char** argv)
