@@ -1,0 +1,48 @@
+###########################################################################################################################
+# Copyright (c) 2023, ANTOBOT LTD.
+# All rights reserved.
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+#
+# Description: 	parameters used for local standalone costmap (use with am_costmap_2d)     	  
+# Contacts:     soyoung.kim@antobot.ai
+#
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+
+footprint: [[-0.8, -0.44], [0.8, -0.44], [0.8, 0.44], [-0.8, 0.44]]
+robot_radius: 0.1 # robot radius should be small as 0.1 for updated Lathcoats 
+
+#The obstacle layer tracks the obstacles as read by the sensor data.    
+obstacle_layer:
+    enabled: true
+    combination_method: 1
+    observation_sources:    lidar_sensor_front lidar_sensor_back
+    lidar_sensor_front: {sensor_frame: laser_link_front, data_type: PointCloud2, observation_persistence: 0.0,  min_obstacle_height: 0.5, max_obstacle_height: 1.4, topic: /lidar_front/lslidar_point_cloud, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 20, inf_is_valid: true}
+    lidar_sensor_back: {sensor_frame: laser_link_back, data_type: PointCloud2, observation_persistence: 0.0,  min_obstacle_height: 0.5, max_obstacle_height: 1.4, topic: /lidar_back/lslidar_point_cloud, marking: true, clearing: true, obstacle_range: 10.0, raytrace_range: 20, inf_is_valid: true}
+
+# Note that global frame is set to base_link. this makes the local costmap to rotate when the robot is rotating. 
+# using costmap_2d package with this setting had an issue of 'smearing'. Therefore, am_costmap_2d has been created (with modification)
+global_frame: base_link
+robot_base_frame: base_link
+
+#update_frequency parameter determines the frequency, in Hz, at which the costmap will run its update loop
+update_frequency: 3.0
+#publish_frequency parameter determines the rate, in Hz, at which the costmap will publish visualization information.
+publish_frequency: 5.0
+
+#rolling_window parameter to true means that the costmap will remain centered around the robot as the robot moves through the world
+rolling_window: true
+always_send_full_costmap: true
+track_unknown_space: false
+footprint_clearing_enabled: true
+
+#The width, height,and resolution parameters set the width (meters), height (meters), and resolution (meters/cell) of the costmap
+width: 15.0 
+height: 15.0
+resolution: 0.2 # check resolution in path_follower graph_obstacle and row following scripts
+
+# For local costmap, we use am_costmap_2d. am_costmap_2d clears the costmap every time it updates.
+# am_costmap_2d is only used for local costmap with global_frame set as base_link.
+plugins: 
+- {name: obstacle_layer,    type: "am_costmap_2d::am_ObstacleLayer"}
