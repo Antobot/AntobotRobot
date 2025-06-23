@@ -78,7 +78,6 @@ class robotMonitor():
         self.imu_buffer = []
         self.imu_buffer_len = int(self.imu_freq/self.imu_buffer_Hz)
         self.imu_update_time = time.time()
-        #print(self.imu_buffer_len)
 
         self.pitch_thresh_low = 10*pi/180
         self.pitch_thresh_med = 15*pi/180
@@ -130,8 +129,6 @@ class robotMonitor():
         # # # Determines whether the robot is currently stuck (i.e. commands are being sent, but the robot isn't moving)
         
         self.cmdVel_consistency_check()
-        #print(self.cmdVel_straight_consistency)
-        #print(self.cmdVel_spotTurn_consistency)
 
         # Stuck during spot turn (indicated by IMU)
         if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
@@ -268,7 +265,6 @@ class robotMonitor():
         if len(self.As_lat_past)==5:
             # Compare against the oldest reading (5 secs old) to check if the robot is stuck
             self.robot_movement_dist5 = self.haversine(self.As_lat, self.As_lon, self.As_lat_past[0], self.As_lon_past[0])
-            #print(self.robot_movement_dist5)
 
         else: # Assume no motion at the start
             self.robot_movement_dist5=0.0
@@ -316,7 +312,7 @@ class robotMonitor():
                 self.yaw_angle(angles_avg[2])
             except IndexError:
                 return
-        #print(self.roll_lvl, self.pitch_lvl)
+        
         # Report if the robot is tilting too much
         if (abs(self.roll_lvl) == 3) or (abs(self.pitch_lvl)==3):
             self.pub_error_lv1_tilt.publish(True)
@@ -370,7 +366,7 @@ class robotMonitor():
 
 
         roll_lvl_i = 0
-        #print(roll,self.roll_thresh_high)
+        
         if roll < 0:       # Robot top is rolling left
             if abs(roll) > self.roll_thresh_high:
                 roll_lvl_i = -3
@@ -422,7 +418,7 @@ class robotMonitor():
             self.robot_yaw5=0.1 # reset to a value that won't trigger stuck detection
             
         if time.time() - self.imu_update_time > 1.0:
-            #print('update!')
+            
             # Add the new reading to the list
             self.yaw_past.append(yaw)
             self.imu_update_time = time.time() # reset imu update time
@@ -466,7 +462,6 @@ class robotMonitor():
         
         if self.robot_movement_dist5 != 0 and abs(self.cmdVel_angular.z) < 0.1 and abs(self.cmdVel_linear.x)<0.1:
             self.robot_movement_distance_reset()
-            #print('reset')
 
         # Update the buffer every second
         if (time.time()- self.cmdVel_time) > 1:
