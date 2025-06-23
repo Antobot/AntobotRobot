@@ -7,4 +7,4 @@ anto_bridge (the communication link between Xavier NX and Aurix), which is inclu
 in this repository will launch anto_bridge for simplicity.
 
 To launch only the controllers of the ant, launch the following:
-**roslaunch am_control ant_controller.launch**
+**roslaunch antobot_control ant_controller.launch**

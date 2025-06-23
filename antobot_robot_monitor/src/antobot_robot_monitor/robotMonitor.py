@@ -7,7 +7,7 @@
 
 # # # Code Description:     moveMonitor watches over the movement of the robot, and reports important information such as
 #                           whether the robot has been stuck (i.e. a command is being sent, but the robot has stopped moving),
-#                           if the robot is angled too much in pitch or roll, and also tracks the robot's mileage over time.
+#                           if the robot is angled too much in pitch or roll.
 
 # # # #  # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
@@ -94,9 +94,6 @@ class robotMonitor():
             self.spotTurn_oscillation_amplitude = rospy.get_param("/antobot_move_path_follow/main_allocate/sim_oscillation_amplitude",0.3)
         else:
             self.spotTurn_oscillation_amplitude = rospy.get_param("/antobot_move_path_follow/main_allocate/oscillation_amplitude",0.3)
-
-
-        # self.pub_total_mileage = rospy.Publisher("/as/total_mileage",Float32,queue_size = 1)
 
         self.sub_GPS_data = rospy.Subscriber("/antobot_gps",NavSatFix,self.GPS_callback)        # Should raw GPS data be used? What if it stops coming?
         self.sub_IMU = rospy.Subscriber('/imu/data_corrected', Imu, self.imu_callback)          # Subscriber for imu data corrected
