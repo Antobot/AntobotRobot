@@ -20,7 +20,7 @@ Contacts: 	daniel.freer@antobot.ai
 #include <std_msgs/Int8.h>
 #include <anto_bridge_msgs/UInt8_Array.h>
 #include <anto_bridge_msgs/UInt16_Array.h>
-#include <antobot_platform_msgs/setSafetyLevel.srv>
+#include <antobot_platform_msgs/setSafetyLevel.h>
 
 #include <vector>
 #include <numeric>
