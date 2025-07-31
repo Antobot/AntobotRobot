@@ -36,8 +36,8 @@ Contacts: 	daniel.freer@antobot.ai
 #include <serial/serial.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/UInt8.h>
-#include <anto_bridge_msgs/UInt8_Array.h>
-#include <anto_bridge_msgs/Float32_Array.h>
+#include <antobot_platform_msgs/UInt8_Array.h>
+#include <antobot_platform_msgs/Float32_Array.h>
 
 using namespace hardware_interface;
 using joint_limits_interface::JointLimits;
@@ -222,9 +222,9 @@ namespace antobot_hardware_interface
 	{
 		/* Initialises ROS publishers which send commands to anto_bridge */
 		
-		wheel_vel_cmd_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/antobridge/wheel_vel_cmd", 1);
-		steer_pos_cmd_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/antobridge/steer_pos_cmd", 1);
-		wheel_vel_filt_pub = nh_.advertise<anto_bridge_msgs::Float32_Array>("/am/control/wheel_vel_filt", 1);
+		wheel_vel_cmd_pub = nh_.advertise<antobot_platform_msgs::Float32_Array>("/antobridge/wheel_vel_cmd", 1);
+		steer_pos_cmd_pub = nh_.advertise<antobot_platform_msgs::Float32_Array>("/antobridge/steer_pos_cmd", 1);
+		wheel_vel_filt_pub = nh_.advertise<antobot_platform_msgs::Float32_Array>("/am/control/wheel_vel_filt", 1);
 	}
 
 	void antobotHardwareInterface::update(const ros::TimerEvent& e)
@@ -280,7 +280,7 @@ namespace antobot_hardware_interface
 		/* Writes robot commands from am_control to AntoBridge via ROS publishers */
 
 		std::vector<float> motor_commands;
-		anto_bridge_msgs::Float32_Array wheel_vels_cmd;
+		antobot_platform_msgs::Float32_Array wheel_vels_cmd;
 
 		// If the commands are only for the 4 wheel motor commands
 		if (num_joints_ < 5)
@@ -293,7 +293,7 @@ namespace antobot_hardware_interface
 		}
 		else		// If steering of each wheel is also considered
 		{
-			anto_bridge_msgs::Float32_Array steer_pos_cmd;
+			antobot_platform_msgs::Float32_Array steer_pos_cmd;
 			std::vector<float> steer_commands;
 			for (int i = 0; i < num_joints_; i++)
 			{
@@ -315,14 +315,14 @@ namespace antobot_hardware_interface
 		wheel_vel_cmd_pub.publish(wheel_vels_cmd);
 	}
 
-	anto_bridge_msgs::Float32_Array antobotHardwareInterface::filterWheelVels(float wheel_vel_ar[4])
+	antobot_platform_msgs::Float32_Array antobotHardwareInterface::filterWheelVels(float wheel_vel_ar[4])
 	{
 		/*  Gets filtered ultrasonic sensor data for each individual sensor, creates the structure
 			for the data to be sent, and returns this to the main USS callback function. */
 		//  Inputs: wheel_vel_ar <float[4]> - the most recent USS data pulled in for each of the 8 sensors
-		//  Returns: uss_dist_filt_all <anto_bridge_msgs::UInt16_Array> - the filtered data to publish
+		//  Returns: uss_dist_filt_all <antobot_platform_msgs::UInt16_Array> - the filtered data to publish
 
-		anto_bridge_msgs::Float32_Array wheel_vel_filt_all;
+		antobot_platform_msgs::Float32_Array wheel_vel_filt_all;
 		float wheel_vel_filt_i;
 
 		for (int i=0; i<4; i++)
@@ -376,7 +376,7 @@ namespace antobot_hardware_interface
 		return vec;
 	}
 
-	void antobotHardwareInterface::wheel_vel_Callback(const anto_bridge_msgs::Float32_Array::ConstPtr& msg)
+	void antobotHardwareInterface::wheel_vel_Callback(const antobot_platform_msgs::Float32_Array::ConstPtr& msg)
 	{
 		/* Callback function for wheel velocities. Passes the information along to class variables */
 
@@ -397,7 +397,7 @@ namespace antobot_hardware_interface
 			
 	}
 	
-	void antobotHardwareInterface::steer_pos_Callback(const anto_bridge_msgs::Float32_Array::ConstPtr& msg)
+	void antobotHardwareInterface::steer_pos_Callback(const antobot_platform_msgs::Float32_Array::ConstPtr& msg)
 	{
 		/* Callback function for wheel velocities. Only applies to more complicated robot designs with steerable wheels
 		Passes the information along to class variables. */
