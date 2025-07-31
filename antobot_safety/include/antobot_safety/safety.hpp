@@ -18,8 +18,8 @@ Contacts: 	daniel.freer@antobot.ai
 #include <std_msgs/String.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Int8.h>
-#include <anto_bridge_msgs/UInt8_Array.h>
-#include <anto_bridge_msgs/UInt16_Array.h>
+#include <antobot_platform_msgs/UInt8_Array.h>
+#include <antobot_platform_msgs/UInt16_Array.h>
 #include <antobot_platform_msgs/setSafetyLevel.h>
 
 #include <vector>
@@ -78,7 +78,7 @@ class AntobotSafety
         float safety_light_freq;
         clock_t t_safety_light;     // Can be used to make the lights blink, if desired
 
-        anto_bridge_msgs::UInt16_Array uss_dist_filt;
+        antobot_platform_msgs::UInt16_Array uss_dist_filt;
 
         std::string robot_role;
         int safety_level;
@@ -97,8 +97,8 @@ class AntobotSafety
         void lightCmdFreq();
         void safetyCmdVelCallback(const geometry_msgs::Twist::ConstPtr& msg);
         void activeCmdVelCallback(const std_msgs::String::ConstPtr& msg);
-        void ussDistCallback(const anto_bridge_msgs::UInt16_Array::ConstPtr& msg);
-        anto_bridge_msgs::UInt16_Array ussDistFilt(uint16_t uss_dist_ar[8]);
+        void ussDistCallback(const antobot_platform_msgs::UInt16_Array::ConstPtr& msg);
+        antobot_platform_msgs::UInt16_Array ussDistFilt(uint16_t uss_dist_ar[8]);
         uint16_t ussDistFilt_i(uint16_t uss_dist, int i);
         std::vector<int> popFront(std::vector<int> vec);
         int getUssVecMean(std::vector<int> vec);

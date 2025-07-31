@@ -38,7 +38,7 @@ Contacts: 	daniel.freer@antobot.ai
 
 #include <std_msgs/Float32.h>
 #include <std_msgs/Int16.h>
-#include <anto_bridge_msgs/Float32_Array.h>
+#include <antobot_platform_msgs/Float32_Array.h>
 
 using namespace hardware_interface;
 using joint_limits_interface::JointLimits;
@@ -71,15 +71,15 @@ namespace antobot_hardware_interface
 			void write(ros::Duration elapsed_time);
 
 			// Wheel filter functions
-			anto_bridge_msgs::Float32_Array filterWheelVels(float wheel_vel_ar[4]);
+			antobot_platform_msgs::Float32_Array filterWheelVels(float wheel_vel_ar[4]);
 			float wheelVelFilt_i(float wheel_vel_i, int i);
 			float get_wVel_vec_min(std::vector<float> vec);
 			std::vector<float> pop_front(std::vector<float> vec);
 
 			// Callback functions (ROS topics)
 			void tw_Callback(const std_msgs::Float32::ConstPtr& msg);
-			void wheel_vel_Callback(const anto_bridge_msgs::Float32_Array::ConstPtr& msg);
-			void steer_pos_Callback(const anto_bridge_msgs::Float32_Array::ConstPtr& msg);
+			void wheel_vel_Callback(const antobot_platform_msgs::Float32_Array::ConstPtr& msg);
+			void steer_pos_Callback(const antobot_platform_msgs::Float32_Array::ConstPtr& msg);
 			
 
 		protected:
@@ -112,7 +112,7 @@ namespace antobot_hardware_interface
 			float steer_pos[4];
 			int wVel_win_size = 15;
 			std::vector<std::vector<float>> wheel_vel_windows;
-			anto_bridge_msgs::Float32_Array wheel_vels_filt;
+			antobot_platform_msgs::Float32_Array wheel_vels_filt;
 
 	};
 

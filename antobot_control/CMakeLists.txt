@@ -15,7 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   urdf
   control_toolbox
   joint_limits_interface
-  anto_bridge_msgs
+  antobot_platform_msgs
   serial
   std_msgs
   message_generation
@@ -52,7 +52,7 @@ target_link_libraries(ant_control
 	${ant_control_LIBRARIES}
 	${catkin_LIBRARIES})
 add_executable(ant_control_node src/ant_control_node.cpp)
-add_dependencies(ant_control_node antobot_move_control anto_bridge_msgs)
+add_dependencies(ant_control_node antobot_move_control antobot_platform_msgs)
 
 target_link_libraries(ant_control_node
 	ant_control
