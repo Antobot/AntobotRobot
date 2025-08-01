@@ -24,13 +24,13 @@ class AntobotControl : public rclcpp::Node
   public:
     AntobotControl() : Node("antobot_control"), count_(0)
     {
-        sub_robot_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10,
+        sub_robot_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot_ant/cmd_vel", 10,
             std::bind(&AntobotControl::robot_cmd_vel_callback, this, _1));
         sub_wheel_vel_ = this->create_subscription<std_msgs::msg::Float32MultiArray>("/antobot/bridge/wheel_vel", 10, 
             std::bind(&AntobotControl::wheel_vel_callback, this, _1));
 
         pub_wheel_vel_cmd_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/antobot/control/wheel_vel_cmd", 10);
-        pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot_robot/odom", 10);
+        pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot_ant/odom", 10);
         timer_ = this->create_wall_timer(40ms, std::bind(&AntobotControl::timer_callback, this));
 
         get_robot_description();
@@ -58,11 +58,14 @@ class AntobotControl : public rclcpp::Node
     float old_angle;
     geometry_msgs::msg::Point old_pos;
 
+    bool sim = true;
+
 
     // Functions
 
     void timer_callback()
     {
+        //RCLCPP_INFO(this->get_logger(), "in antobot_control timer callback");
         auto wheel_vel_cmd_msg = std_msgs::msg::Float32MultiArray();
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
         wheel_vel_cmd_msg.data = wheel_vel_cmd;
@@ -76,7 +79,7 @@ class AntobotControl : public rclcpp::Node
 
     void wheel_vel_callback(const std_msgs::msg::Float32MultiArray &msg)
     {
-        RCLCPP_INFO(this->get_logger(), "in wheel vel callback");
+        //RCLCPP_INFO(this->get_logger(), "in wheel vel callback");
         wheel_vels[0] = msg.data[0];
         wheel_vels[1] = msg.data[1];
         wheel_vels[2] = msg.data[2];
@@ -85,7 +88,7 @@ class AntobotControl : public rclcpp::Node
 
     void robot_cmd_vel_callback(const geometry_msgs::msg::Twist &msg)
     {
-        RCLCPP_INFO(this->get_logger(), "in robot cmd vel callback");
+        //RCLCPP_INFO(this->get_logger(), "in robot cmd vel callback");
         robot_lin_vel_cmd = msg.linear.x;
         robot_ang_vel_cmd = msg.angular.z;
     }
@@ -119,6 +122,7 @@ class AntobotControl : public rclcpp::Node
 
     void get_wheel_odom()
     {
+        
         geometry_msgs::msg::TwistWithCovariance twist_cov;
         geometry_msgs::msg::PoseWithCovariance pose_cov;
         
@@ -156,6 +160,14 @@ class AntobotControl : public rclcpp::Node
 
         float wheel_ang_vel_l;
         float wheel_ang_vel_r;
+
+        if (sim)
+        {
+            wheel_vels[0] = wheel_vel_cmd[0];
+            wheel_vels[1] = wheel_vel_cmd[1];
+            wheel_vels[2] = wheel_vel_cmd[2];
+            wheel_vels[3] = wheel_vel_cmd[3];
+        }
 
         wheel_ang_vel_l = (wheel_vels[0] + wheel_vels[1]) / 2;    // Take simple average of most recent wheel velocity information
         wheel_ang_vel_r = (wheel_vels[2] + wheel_vels[3]) / 2;    
