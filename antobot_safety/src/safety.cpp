@@ -47,6 +47,13 @@ class AntobotSafety : public rclcpp::Node
 
         timer_ = this->create_wall_timer(40ms, std::bind(&AntobotSafety::timer_callback, this));
 
+        // Initialising uss_dist_filt with fake data
+        std_msgs::msg::Int16MultiArray uss_dist_filt_init;
+        for (int i=0; i<8; i++)
+        {
+            uss_dist_filt_init.data.push_back(200);
+        }
+        uss_dist_filt = uss_dist_filt_init;
     }
 
   private:
@@ -249,17 +256,29 @@ class AntobotSafety : public rclcpp::Node
         //  Returns: not_safe <bool> - true indicates the robot may collide with an object; false means safe movement is possible
 
         not_safe = false;
-        //force_stop_type = 0;
-
-        if (linear_vel > lin_vel_thresh)
+        
+        if (linear_vel > lin_vel_thresh)    // Robot is moving forward
         {
-            // Robot is moving forward
-            not_safe = ussDistSafetyCheck_f();
+            try
+            {
+                not_safe = ussDistSafetyCheck_f();
+            }
+            catch (int errorCode)
+            {
+                RCLCPP_ERROR(this->get_logger(), "SF0200: Unable to check safety with USS (forward movement)");
+            }
+            
         }
-        else if (linear_vel < -lin_vel_thresh)
+        else if (linear_vel < -lin_vel_thresh)  // Robot is moving backward
         {
-            // Robot is moving backward
-            not_safe = ussDistSafetyCheck_b();
+            try
+            {
+                not_safe = ussDistSafetyCheck_b();
+            }
+            catch (int errorCode)
+            {
+                RCLCPP_ERROR(this->get_logger(), "SF0201: Unable to check safety with USS (backward movement)");
+            }
         }
         else
         {
@@ -301,11 +320,11 @@ class AntobotSafety : public rclcpp::Node
         //          angular_vel <float> - robot commanded angular velocity
         //  Returns: not_safe <bool> - true indicates the robot may collide with an object; false means safe movement is possible
 
-        int fst = 2;    // 1 - left front; 2 - straight front; 3 - right front
+        // force_stop_type: 1 - left front; 2 - straight front; 3 - right front
         bool not_safe_f = false;
 
         time_to_collision = (float)(uss_dist_filt.data[1])/(100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's front
-        if (time_to_collision < time_collision_thresh || uss_dist_filt.data[1] < hard_dist_thresh && uss_dist_filt.data[1] < 200)
+        if ((time_to_collision < time_collision_thresh || uss_dist_filt.data[1] < hard_dist_thresh) && uss_dist_filt.data[1] < 200)
         {
             not_safe_f = true;
             force_stop_type = 2;
@@ -317,7 +336,7 @@ class AntobotSafety : public rclcpp::Node
             if (angular_vel > ang_vel_thresh * linear_vel)           // Robot is turning left while moving forward
             {
                 float time_to_collision_fl = (float)(uss_dist_filt.data[0])/(100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's front left
-                if (time_to_collision_fl < time_collision_thresh || uss_dist_filt.data[0] < hard_dist_thresh_diag && uss_dist_filt.data[0] < 200)
+                if ((time_to_collision_fl < time_collision_thresh || uss_dist_filt.data[0] < hard_dist_thresh_diag) && uss_dist_filt.data[0] < 200)
                 {
                     force_stop_type = 1;
                     not_safe_f = true;
@@ -327,7 +346,7 @@ class AntobotSafety : public rclcpp::Node
             else if (angular_vel < -ang_vel_thresh * linear_vel)     // Robot is turning right while moving forward
             {
                 float time_to_collision_fr = (float)(uss_dist_filt.data[2])/(100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's front right
-                if (time_to_collision_fr < time_collision_thresh || uss_dist_filt.data[2] < hard_dist_thresh_diag && uss_dist_filt.data[2] <200)
+                if ((time_to_collision_fr < time_collision_thresh || uss_dist_filt.data[2] < hard_dist_thresh_diag) && uss_dist_filt.data[2] <200)
                 {
                     force_stop_type = 3;
                     not_safe_f = true;
@@ -348,11 +367,11 @@ class AntobotSafety : public rclcpp::Node
         //          angular_vel <float> - robot commanded angular velocity
         //  Returns: not_safe <bool> - true indicates the robot may collide with an object; false means safe movement is possible
         
-        int fst = 6;    // 7 - left back; 6 - straight back; 5 - right back (force stop type)
+        // force_stop_type: 7 - left back; 6 - straight back; 5 - right back
         bool not_safe_b = false;
 
         time_to_collision = (float)(uss_dist_filt.data[5])/(-100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's back
-        if (time_to_collision < time_collision_thresh || uss_dist_filt.data[5] < hard_dist_thresh && uss_dist_filt.data[5] < 200)
+        if ((time_to_collision < time_collision_thresh || uss_dist_filt.data[5] < hard_dist_thresh) && uss_dist_filt.data[5] < 200)
         {
             not_safe_b = true;
             force_stop_type = 6;
@@ -365,7 +384,7 @@ class AntobotSafety : public rclcpp::Node
             {
                 // Robot is moving back right
                 float time_to_collision_br = (float)(uss_dist_filt.data[4])/(-100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's back right
-                if (time_to_collision_br < time_collision_thresh || uss_dist_filt.data[4] < hard_dist_thresh_diag && uss_dist_filt.data[4] < 200)
+                if ((time_to_collision_br < time_collision_thresh || uss_dist_filt.data[4] < hard_dist_thresh_diag) && uss_dist_filt.data[4] < 200)
                 {
                     force_stop_type = 5;
                     not_safe_b = true;
@@ -376,7 +395,7 @@ class AntobotSafety : public rclcpp::Node
             {
                 // Robot is moving back left
                 float time_to_collision_bl = (float)(uss_dist_filt.data[6])/(-100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's back left
-                if (time_to_collision_bl < time_collision_thresh || uss_dist_filt.data[6] < hard_dist_thresh_diag && uss_dist_filt.data[6] < 200)
+                if ((time_to_collision_bl < time_collision_thresh || uss_dist_filt.data[6] < hard_dist_thresh_diag) && uss_dist_filt.data[6] < 200)
                 {
                     force_stop_type = 7;
                     not_safe_b = true;
@@ -545,11 +564,11 @@ class AntobotSafety : public rclcpp::Node
 
         // Checks acceleration
         if (abs(linear_vel) > abs(prev_linear_vel) + max_acc_s)
-        linear_vel = prev_linear_vel + copysign(max_acc_s, linear_vel); // If acceleration is too high, lowers command speed
+            linear_vel = prev_linear_vel + copysign(max_acc_s, linear_vel); // If acceleration is too high, lowers command speed
 
         // Checks deceleration
         if (abs(linear_vel) < abs(prev_linear_vel) - max_dec_s)
-        linear_vel = prev_linear_vel - copysign(max_dec_s, prev_linear_vel); // If deceleration is too fast, keeps speed up
+            linear_vel = prev_linear_vel - copysign(max_dec_s, prev_linear_vel); // If deceleration is too fast, keeps speed up
 
         // Assigns values to final output
         cmd_vel_msg.linear.x = linear_vel;
