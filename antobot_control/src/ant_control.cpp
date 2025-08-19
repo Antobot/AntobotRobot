@@ -30,7 +30,7 @@ class AntobotControl : public rclcpp::Node
             std::bind(&AntobotControl::wheel_vel_callback, this, _1));
 
         pub_wheel_vel_cmd_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/antobot/control/wheel_vel_cmd", 10);
-        pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot/robot/odom", 10);
+        pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot/robot/odometry", 10);
         timer_ = this->create_wall_timer(40ms, std::bind(&AntobotControl::timer_callback, this));
 
         get_robot_description();
