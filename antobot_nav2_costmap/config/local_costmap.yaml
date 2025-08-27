@@ -1,0 +1,23 @@
+local_costmap:
+  global_frame: odom
+  robot_base_frame: base_link
+  update_frequency: 5.0
+  publish_frequency: 2.0
+  rolling_window: true
+  width: 10.0
+  height: 10.0
+  resolution: 0.05
+
+  plugins:
+    - name: obstacle_layer
+      type: "nav2_costmap_2d::ObstacleLayer"
+      observation_sources: laser
+      laser: 
+        topic: /antobot_ant/scan/front
+        data_type: LaserScan
+        sensor_frame: laser_link_front_frame
+        marking: true
+        clearing: true
+
+    - name: inflation_layer
+      type: "nav2_costmap_2d::InflationLayer"
