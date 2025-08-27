@@ -4,21 +4,20 @@ from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
-    # Get the path to the YAML configuration file
-    config_dir = os.path.join(
-        get_package_share_directory('antobot_nav2_costmap'), 
-        'config'
+    # Path to your costmap YAML
+    config_file = os.path.join(
+        get_package_share_directory('antobot_nav2_costmap'),
+        'config',
+        'local_costmap.yaml'
     )
-
-    # Full Nav2 parameter file that disables global costmap, planners, BT navigator
-    nav2_params_file = os.path.join(config_dir, 'nav2_local_only_params.yaml')
 
     return LaunchDescription([
         Node(
-            package="nav2_controller",
-            executable="controller_server",
-            name="controller_server",
-            output="screen",
-            parameters=[nav2_params_file,{'use_sim_time': True}]
+            package='nav2_costmap_2d',
+            executable='nav2_costmap_2d',
+            name='costmap',        # ROS 2 node name
+            output='screen',
+            parameters=[config_file]
         )
+
     ])
