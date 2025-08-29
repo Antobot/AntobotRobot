@@ -13,8 +13,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         Node(
-            package='nav2_costmap_2d',
-            executable='nav2_costmap_2d',
+            package='nav2_costmap_2d_test',
+            executable='nav2_costmap_2d_test',
             name='costmap',        # ROS 2 node name
             output='screen',
             parameters=[config_file]
