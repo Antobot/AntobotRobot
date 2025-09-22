@@ -11,9 +11,10 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(antobot_platform_msgs REQUIRED)
 
 add_executable(ant_control_node src/ant_control.cpp)
-ament_target_dependencies(ant_control_node rclcpp std_msgs geometry_msgs nav_msgs)
+ament_target_dependencies(ant_control_node rclcpp std_msgs geometry_msgs nav_msgs antobot_platform_msgs)
 target_include_directories(ant_control_node PUBLIC include include/antobot_control)
 
 install(

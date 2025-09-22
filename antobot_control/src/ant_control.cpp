@@ -6,7 +6,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "std_msgs/msg/float32_multi_array.hpp"
+//#include "std_msgs/msg/float32_multi_array.hpp"
+#include "antobot_platform_msgs/msg/float32_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 //#include "geometry_msgs/msg/pose_with_covariance.hpp"
@@ -26,10 +27,10 @@ class AntobotControl : public rclcpp::Node
     {
         sub_robot_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10,
             std::bind(&AntobotControl::robot_cmd_vel_callback, this, _1));
-        sub_wheel_vel_ = this->create_subscription<std_msgs::msg::Float32MultiArray>("/antobot/bridge/wheel_vel", 10, 
+        sub_wheel_vel_ = this->create_subscription<antobot_platform_msgs::msg::Float32Array>("/antobot/bridge/wheel_vel", 10, 
             std::bind(&AntobotControl::wheel_vel_callback, this, _1));
 
-        pub_wheel_vel_cmd_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/antobot/control/wheel_vel_cmd", 10);
+        pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>("/antobridge/wheel_vel_cmd", 10);
         pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot/robot/odometry", 10);
         timer_ = this->create_wall_timer(40ms, std::bind(&AntobotControl::timer_callback, this));
 
@@ -41,9 +42,9 @@ class AntobotControl : public rclcpp::Node
     // Variable definitions
   
     rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_wheel_vel_cmd_;
+    rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr pub_wheel_vel_cmd_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_wheel_odom_;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_wheel_vel_;
+    rclcpp::Subscription<antobot_platform_msgs::msg::Float32Array>::SharedPtr sub_wheel_vel_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_robot_cmd_vel_;
 
     size_t count_;
@@ -66,7 +67,7 @@ class AntobotControl : public rclcpp::Node
     void timer_callback()
     {
         //RCLCPP_INFO(this->get_logger(), "in antobot_control timer callback");
-        auto wheel_vel_cmd_msg = std_msgs::msg::Float32MultiArray();
+        auto wheel_vel_cmd_msg = antobot_platform_msgs::msg::Float32Array();
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
         wheel_vel_cmd_msg.data = wheel_vel_cmd;
 
@@ -77,7 +78,7 @@ class AntobotControl : public rclcpp::Node
         pub_wheel_odom_->publish(wheel_odom_msg);
     }
 
-    void wheel_vel_callback(const std_msgs::msg::Float32MultiArray &msg)
+    void wheel_vel_callback(const antobot_platform_msgs::msg::Float32Array &msg)
     {
         //RCLCPP_INFO(this->get_logger(), "in wheel vel callback");
         wheel_vels[0] = msg.data[0];
