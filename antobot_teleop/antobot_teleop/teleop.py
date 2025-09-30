@@ -33,11 +33,16 @@ class MasterTeleop(Node):
         super().__init__('teleop')
         self.timer = self.create_timer(1.0/30, self.update)
 
+        self.declare_parameter('use_keyboard', True)
+        self.use_keyboard = self.get_parameter('use_keyboard').get_parameter_value().bool_value
+        print(f"self.use_keyboard: {self.use_keyboard}")
         # Create classes for each input method
         self.teleop_method=dict()
         self.teleop_method[0] = teleop_joystick(self)
-        self.teleop_method[1] = teleop_keyboard(self)
-        self.teleop_method[1].print_msg()
+
+        if self.use_keyboard:
+            self.teleop_method[1] = teleop_keyboard(self)
+            self.teleop_method[1].print_msg()
         self.teleop_mode=None # No method is the default
 
         # Set a timeout, after which a teleop input is no longer considered active
@@ -69,7 +74,8 @@ class MasterTeleop(Node):
 
         # The keyboard mode is currently the only mode that doesnt self update. Request the currently held keys each turn
         # teleop_keyboard can only handle a single key press at once
-        self.teleop_method[1].update()
+        if self.use_keyboard:
+            self.teleop_method[1].update()
 
         # Get the current time and compare to when each of the teleop methods were last updated
         now=time.time()
@@ -83,14 +89,16 @@ class MasterTeleop(Node):
 
         if (now-self.teleop_method[0].lastUpdate)<self.inputTimeout:
             self.teleop_mode=0 # Set the index for the active method
-            self.teleop_method[1].trigger_active=False # De-activate the other methods
+            if self.use_keyboard:
+                self.teleop_method[1].trigger_active=False # De-activate the other methods
 
-        elif (now-self.teleop_method[1].lastUpdate)<self.inputTimeout:
+        elif self.use_keyboard and (now-self.teleop_method[1].lastUpdate)<self.inputTimeout:
             self.teleop_mode=1 # Set the index for this method
             self.teleop_method[0].trigger_active=False # De-activate the other methods
         else: # De-activate all methods
             self.teleop_method[0].trigger_active=False
-            self.teleop_method[1].trigger_active=False
+            if self.use_keyboard:
+                self.teleop_method[1].trigger_active=False
 
 
         # Update the triggers and cmd_vel

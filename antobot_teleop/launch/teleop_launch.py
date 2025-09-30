@@ -1,62 +1,89 @@
 #!/usr/bin/env python3
 
 import os
+import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
-    # Declare launch arguments
-    use_joy = DeclareLaunchArgument(
-        'use_joy', default_value='true', description='Use joystick input'
-    )
-    use_keyboard = DeclareLaunchArgument(
-        'use_keyboard', default_value='true', description='Use Keyboard input'
-    )
 
-    # Get the path to the YAML configuration file
-    joy_remap_config = os.path.join(
-        get_package_share_directory('antobot_teleop'), 
-        'config',
-        'gamepad.yaml'  
-    )
-    print(joy_remap_config)
+    ld = LaunchDescription()
 
-    # Define nodes
-    joy_node = Node(
-        condition=IfCondition(LaunchConfiguration('use_joy')),
-        package='joy',
-        executable='joy_node',
-        name='joy_node',
-        parameters=[{'dev': '/dev/input/js0'}],
-        remappings=[('joy', 'joy_orig')],
-    )
+    # get joystick type
+    joystick_type = 'LogitechF710'
+    use_keyboard = True
 
-    joy_remap_node = Node(
-        condition=IfCondition(LaunchConfiguration('use_joy')),
-        package='antobot_teleop',
-        executable='joy_remap',
-        name='joy_remap',
-        remappings=[('joy_in', 'joy_orig'), ('joy_out', 'joy')],
-        parameters=[joy_remap_config] 
+    try:
+        package_path = get_package_share_directory('antobot_description')
+        config_file = os.path.join(package_path, 'config', 'platform_config.yaml')
 
-    )
+        with open(config_file, 'r') as file:
+            params = yaml.safe_load(file)
 
-    teleop_node = Node(
-        condition=IfCondition(LaunchConfiguration('use_keyboard')),
-        package='antobot_teleop',
-        executable='teleop',
-        name='teleop',
-        prefix='xterm -e',
-        output='screen'
-    )
+        joystick_type = params["teleop"]["joystick"]
+        use_keyboard = params["teleop"]["keyboard"]
+    except:
+        pass
 
-    return LaunchDescription([
-        use_joy,use_keyboard,       # Declare the launch argument
-        joy_node,       # Start joy node if use_joy is true
-        joy_remap_node, # Start joy remap node if use_joy is true
-        teleop_node,    # Start the teleop node
-    ])
+    #print(joystick_type)
+
+    if joystick_type == "LogitechF710":
+        joy_node = Node(
+            package='joy',
+            executable='joy_node',
+            name='joy_node',
+            parameters=[{'dev': '/dev/input/js0'}],
+            remappings=[('joy', 'joy_orig')]
+        )
+            
+        joy_remap_config = os.path.join(
+            get_package_share_directory('antobot_teleop'), 
+            'config',
+            'gamepad.yaml'  
+        )
+
+        joy_remap_node = Node(
+            package='antobot_teleop',
+            executable='joy_remap',
+            name='joy_remap',
+            remappings=[('joy_in', 'joy_orig'), ('joy_out', 'joy')],
+            parameters=[joy_remap_config] 
+
+        )
+
+        ld.add_action(joy_node)
+        ld.add_action(joy_remap_node)
+
+    elif joystick_type == "Pocket":
+        joy_elrs_node_node = Node(
+            package='antobot_devices_joy',
+            executable='joy_elrs_node',
+            name='joy_elrs_node',
+            parameters=[{'dev': '/dev/ttyUSB0'}]
+        )
+        ld.add_action(joy_elrs_node_node)
+   
+    if use_keyboard:
+        teleop_node = Node(
+            package='antobot_teleop',
+            executable='teleop',
+            name='teleop',
+            prefix='xterm -e',
+            output='screen'
+        )
+        ld.add_action(teleop_node)
+    else:
+        teleop_node = Node(
+            package='antobot_teleop',
+            executable='teleop',
+            name='teleop',
+            parameters=[{'use_keyboard': False}],
+            output='screen'
+        )
+        ld.add_action(teleop_node)
+
+    return ld
