@@ -66,6 +66,17 @@ def generate_launch_description():
             parameters=[{'dev': '/dev/ttyUSB0'}]
         )
         ld.add_action(joy_elrs_node_node)
+
+    elif joystick_type == "MicrozoneC7MINI":
+        joy_sbus_node = Node(
+            package='antobot_devices_joy',
+            executable='joy_sbus_node',
+            name='joy_node',
+            parameters=[{'dev': '/dev/anto_joy'}],
+            remappings=[('joy', 'joy_sbus')]
+        )
+        ld.add_action(joy_sbus_node)
+
    
     if use_keyboard:
         teleop_node = Node(
