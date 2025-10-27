@@ -1,6 +1,6 @@
 costmap/costmap:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     global_frame: base_link
     robot_base_frame: base_link
     update_frequency: 10.0
@@ -20,25 +20,9 @@ costmap/costmap:
       track_unknown_space: false
       enabled: true
 
-      # observation_sources: laser #tested
-      # laser:
-      #   topic: /antobot_ant/scan/front
-      #   data_type: LaserScan
-      #   sensor_frame: laser_link_front_frame
-      #   marking: true
-      #   clearing: true
-      #   max_obstacle_height: 10.0
-      #   min_obstacle_height: 0.0
-      #   obstacle_max_range: 10.0
-      #   obstacle_min_range: 0.0
-      #   raytrace_max_range: 12.0
-      #   raytrace_min_range: 0.0
-      #   inf_is_valid: true
-      #   observation_persistence: 0.0  # seconds
-
       observation_sources: lidar_front
       lidar_front:
-        topic: /antobot_ant/scan/front/points
+        topic: /antobot_ant/scan/front/points # TODO - change the topic name
         data_type: PointCloud2
         sensor_frame: laser_link_front_frame
         marking: true

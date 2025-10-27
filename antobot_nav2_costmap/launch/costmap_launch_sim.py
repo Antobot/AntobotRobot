@@ -10,7 +10,7 @@ def generate_launch_description():
     config_file = os.path.join(
         get_package_share_directory('antobot_nav2_costmap'),
         'config',
-        'local_costmap.yaml'
+        'costmap_sim.yaml'
     )
 
     # Costmap node
