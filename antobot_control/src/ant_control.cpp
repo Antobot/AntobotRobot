@@ -147,8 +147,9 @@ class AntobotControl : public rclcpp::Node
                                  0.0,   0.0,    0.0,    0.0,    0.0,    0.03};
         pose_cov.covariance = pose_cov_cov;
         
-        //  wheel_odom_msg.header = 
-        //  wheel_odom_msg.child_frame_id = 
+        wheel_odom_msg.header.stamp = this->now();
+        wheel_odom_msg.header.frame_id = "odom";
+        wheel_odom_msg.child_frame_id = "base_link";
         wheel_odom_msg.pose = pose_cov;
         wheel_odom_msg.twist = twist_cov;
     }
