@@ -22,9 +22,9 @@ costmap/costmap:
 
       observation_sources: lidar_front_sim
       lidar_front_sim:
-        topic: /antobot_ant/scan/front/points
+        topic: /lidar_200/pointcloud # TODO - change the topic name
         data_type: PointCloud2
-        sensor_frame: laser_link_front_frame
+        sensor_frame: lidar_200_frame
         marking: true
         clearing: true
         max_obstacle_height: 10.0
