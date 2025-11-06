@@ -20,8 +20,8 @@ costmap/costmap:
       track_unknown_space: false
       enabled: true
 
-      observation_sources: lidar_front_sim
-      lidar_front_sim:
+      observation_sources: lidar_200_sim
+      lidar_200_sim:
         topic: /lidar_200/pointcloud # TODO - change the topic name
         data_type: PointCloud2
         sensor_frame: lidar_200_frame
