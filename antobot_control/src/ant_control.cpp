@@ -91,7 +91,7 @@ class AntobotControl : public rclcpp::Node
     {
         //RCLCPP_INFO(this->get_logger(), "in robot cmd vel callback");
         robot_lin_vel_cmd = msg.linear.x;
-        robot_ang_vel_cmd = msg.angular.z;
+        robot_ang_vel_cmd = -1.0*msg.angular.z;
     }
 
     void get_robot_description()
