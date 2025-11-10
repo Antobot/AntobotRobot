@@ -1,0 +1,33 @@
+costmap/costmap:
+  ros__parameters:
+    global_frame: base_link
+    robot_base_frame: base_link
+    update_frequency: 10.0
+    publish_frequency: 5.0
+    rolling_window: true
+    width: 10
+    height: 10
+    resolution: 0.05
+    footprint: "[[-0.8, -0.24], [0.8, -0.24], [0.8, 0.24], [-0.8, 0.24]]"
+    plugins: ["obstacle_layer"]
+    always_send_full_costmap: true
+  
+    obstacle_layer:
+      plugin: "nav2_costmap_2d::ObstacleLayer_new"
+      max_obstacle_height: 10.0
+      combination_method: 1
+      track_unknown_space: false
+      enabled: true
+
+    lidar_base_conifg:
+      data_type: PointCloud2
+      marking: true
+      clearing: true
+      max_obstacle_height: 1.4
+      min_obstacle_height: 0.5 # 0.5 for assist; 0.8 for uv
+      obstacle_max_range: 10.0
+      obstacle_min_range: 0.0
+      raytrace_max_range: 12.0
+      raytrace_min_range: 0.0
+      observation_persistence: 0.0  # seconds
+
