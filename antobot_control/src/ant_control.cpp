@@ -36,6 +36,7 @@ class AntobotControl : public rclcpp::Node
 
         get_robot_description();
         last_msg_time_ = this->now();
+        last_cycle_time_ = this->now();
     }
 
   private:
@@ -62,6 +63,7 @@ class AntobotControl : public rclcpp::Node
 
     bool sim = true;
     rclcpp::Time last_msg_time_;
+    rclcpp::Time last_cycle_time_;
 
 
     // Functions
@@ -70,7 +72,7 @@ class AntobotControl : public rclcpp::Node
     {
         //RCLCPP_INFO(this->get_logger(), "in antobot_control timer callback");
         rclcpp::Time current_time = this->now();
-        double time_since_cmd = (current_time - last_msg_time_).seconds();
+        double time_since_cmd = (current_time - last_cycle_time_).seconds();
         if (time_since_cmd > 0.1)
         {
             if (robot_lin_vel_cmd != 0.0 || robot_ang_vel_cmd != 0.0)
@@ -87,6 +89,7 @@ class AntobotControl : public rclcpp::Node
 
         wheel_odom_msg = nav_msgs::msg::Odometry();
         get_wheel_odom();
+        last_cycle_time_ = current_time;
         
         pub_wheel_vel_cmd_->publish(wheel_vel_cmd_msg);
         pub_wheel_odom_->publish(wheel_odom_msg);
