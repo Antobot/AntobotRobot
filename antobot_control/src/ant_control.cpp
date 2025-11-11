@@ -32,9 +32,10 @@ class AntobotControl : public rclcpp::Node
 
         pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>("/antobridge/wheel_vel_cmd", 10);
         pub_wheel_odom_ = this->create_publisher<nav_msgs::msg::Odometry>("/antobot/robot/odometry", 10);
-        timer_ = this->create_wall_timer(40ms, std::bind(&AntobotControl::timer_callback, this));
+        timer_ = this->create_wall_timer(10ms, std::bind(&AntobotControl::timer_callback, this));
 
         get_robot_description();
+        last_msg_time_ = this->now();
     }
 
   private:
@@ -60,6 +61,7 @@ class AntobotControl : public rclcpp::Node
     geometry_msgs::msg::Point old_pos;
 
     bool sim = true;
+    rclcpp::Time last_msg_time_;
 
 
     // Functions
@@ -67,6 +69,18 @@ class AntobotControl : public rclcpp::Node
     void timer_callback()
     {
         //RCLCPP_INFO(this->get_logger(), "in antobot_control timer callback");
+        rclcpp::Time current_time = this->now();
+        double time_since_cmd = (current_time - last_msg_time_).seconds();
+        if (time_since_cmd > 0.1)
+        {
+            if (robot_lin_vel_cmd != 0.0 || robot_ang_vel_cmd != 0.0)
+            {
+                RCLCPP_WARN(this->get_logger(),
+                            "No cmd_vel received for %.3f s, stop robot.", time_since_cmd);
+            }
+            robot_lin_vel_cmd = 0.0;
+            robot_ang_vel_cmd = 0.0;
+        }
         auto wheel_vel_cmd_msg = antobot_platform_msgs::msg::Float32Array();
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
         wheel_vel_cmd_msg.data = wheel_vel_cmd;
@@ -90,8 +104,22 @@ class AntobotControl : public rclcpp::Node
     void robot_cmd_vel_callback(const geometry_msgs::msg::Twist &msg)
     {
         //RCLCPP_INFO(this->get_logger(), "in robot cmd vel callback");
-        robot_lin_vel_cmd = msg.linear.x;
-        robot_ang_vel_cmd = -1.0*msg.angular.z;
+        rclcpp::Time current_time = this->now();
+        double dt = (current_time - last_msg_time_).seconds();
+
+        if (dt > 0.1) // 超过100ms
+        {
+            RCLCPP_WARN(this->get_logger(), "Cmd delay %.3f s (>100ms), setting velocities to 0.", dt);
+            robot_lin_vel_cmd = 0.0;
+            robot_ang_vel_cmd = 0.0;
+        }
+        else
+        {
+            robot_lin_vel_cmd = msg.linear.x;
+            robot_ang_vel_cmd = -1.0 * msg.angular.z;
+        }
+
+        last_msg_time_ = current_time;
     }
 
     void get_robot_description()
