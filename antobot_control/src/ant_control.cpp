@@ -56,10 +56,9 @@ class AntobotControl : public rclcpp::Node
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotControl::timer_callback, this));
 
         last_command_time_ = this->now();
-        //get_robot_description();
 
     }
-
+ 
   private:
     
     // Variable definitions
@@ -177,14 +176,6 @@ class AntobotControl : public rclcpp::Node
         }
 
         return v_curr + std::clamp(eta * dv, v_component_min, v_component_max);
-    }
-
-    void get_robot_description()
-    {
-        /* Should read from URDF or other configuration file */
-
-        wheel_base_ = 0.6;
-        wheel_radius_ = 0.165;
     }
     
     void get_motor_commands(float lin_vel, float ang_vel)
