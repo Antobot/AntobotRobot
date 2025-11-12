@@ -55,7 +55,9 @@ class AntobotControl : public rclcpp::Node
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotControl::timer_callback, this));
 
+        last_command_time_ = this->now();
         //get_robot_description();
+
     }
 
   private:
@@ -90,20 +92,19 @@ class AntobotControl : public rclcpp::Node
     double robot_lin_vel_cmd_last, robot_ang_vel_cmd_last;
 
     // Functions
-
     void timer_callback()
     {   
         // Check for velocity timeout
         double time_since_cmd = (this->now() - last_command_time_).seconds();
-        // if (time_since_cmd > velocity_timeout_)
-        // {
-        //     if (robot_lin_vel_cmd != 0.0 || robot_ang_vel_cmd != 0.0)
-        //     {
-        //         RCLCPP_WARN(this->get_logger(), "No cmd_vel received for %.3f s, stop robot.", time_since_cmd);
-        //     }
-        //     robot_lin_vel_cmd = 0.0;
-        //     robot_ang_vel_cmd = 0.0;
-        // }
+        if (time_since_cmd > velocity_timeout_)
+        {
+            if (robot_lin_vel_cmd != 0.0 || robot_ang_vel_cmd != 0.0)
+            {
+                RCLCPP_WARN(this->get_logger(), "No cmd_vel received for %.3f s, stop robot.", time_since_cmd);
+            }
+            robot_lin_vel_cmd = 0.0;
+            robot_ang_vel_cmd = 0.0;
+        }
 
         auto wheel_vel_cmd_msg = antobot_platform_msgs::msg::Float32Array();
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
