@@ -1,6 +1,5 @@
 costmap/costmap:
   ros__parameters:
-    use_sim_time: true
     global_frame: base_link
     robot_base_frame: base_link
     update_frequency: 10.0
@@ -20,20 +19,15 @@ costmap/costmap:
       track_unknown_space: false
       enabled: true
 
-      observation_sources: lidar_200_sim
-      lidar_200_sim:
-        topic: /lidar_200/pointcloud # TODO - change the topic name
-        data_type: PointCloud2
-        sensor_frame: lidar_200_frame
-        marking: true
-        clearing: true
-        max_obstacle_height: 1.4
-        min_obstacle_height: 0.5 # 0.5 for assist; 0.8 for uv
-        obstacle_max_range: 10.0
-        obstacle_min_range: 0.0
-        raytrace_max_range: 12.0
-        raytrace_min_range: 0.0
-        observation_persistence: 0.0  # seconds
-
-
+    lidar_base_conifg:
+      data_type: PointCloud2
+      marking: true
+      clearing: true
+      max_obstacle_height: 1.4
+      min_obstacle_height: 0.5 # 0.5 for assist; 0.8 for uv
+      obstacle_max_range: 10.0
+      obstacle_min_range: 0.0
+      raytrace_max_range: 12.0
+      raytrace_min_range: 0.0
+      observation_persistence: 0.0  # seconds
 
