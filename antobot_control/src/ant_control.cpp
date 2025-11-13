@@ -30,8 +30,8 @@ class AntobotControl : public rclcpp::Node
         this->declare_parameter<double>("wheel_radius", 0.165);
         this->declare_parameter<std::vector<double>>("max_velocity", std::vector<double>{0.5, 0.5});
         this->declare_parameter<std::vector<double>>("min_velocity", std::vector<double>{-0.5, -0.5});
-        this->declare_parameter<std::vector<double>>("max_accel", std::vector<double>{1.0, 1.0});
-        this->declare_parameter<std::vector<double>>("max_decel", std::vector<double>{-1.0, 1.0});
+        this->declare_parameter<std::vector<double>>("max_accel", std::vector<double>{0.2, 0.5});
+        this->declare_parameter<std::vector<double>>("max_decel", std::vector<double>{-1.0, -1.0});
         this->declare_parameter<double>("frequency", 30.0);
         this->declare_parameter<double>("velocity_timeout", 0.1);
 
@@ -43,6 +43,8 @@ class AntobotControl : public rclcpp::Node
         max_decels_ = this->get_parameter("max_decel").as_double_array();
         frequency_ = this->get_parameter("frequency").as_double();
         velocity_timeout_ = this->get_parameter("velocity_timeout").as_double();
+
+        validate_velocity_limits();
 
         sub_robot_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10,
             std::bind(&AntobotControl::robot_cmd_vel_callback, this, _1));
@@ -177,7 +179,65 @@ class AntobotControl : public rclcpp::Node
 
         return v_curr + std::clamp(eta * dv, v_component_min, v_component_max);
     }
-    
+
+    // check the velocity parameters
+    void validate_velocity_limits()
+    {
+
+        max_velocities_ = this->get_parameter("max_velocity").as_double_array();
+        min_velocities_ = this->get_parameter("min_velocity").as_double_array();
+        max_accels_ = this->get_parameter("max_accel").as_double_array();
+        max_decels_ = this->get_parameter("max_decel").as_double_array();
+
+        if (min_velocities_.size() != max_velocities_.size()) {
+            throw std::runtime_error(
+                "Parameter validation failed: 'min_velocity' and 'max_velocity' must have the same size. "
+                "Got " + std::to_string(min_velocities_.size()) + " and " + std::to_string(max_velocities_.size()) + "."
+            );
+        }
+        
+        if (max_accels_.size() != max_decels_.size()) {
+            throw std::runtime_error(
+                "Parameter validation failed: 'max_accel' and 'max_decel' must have the same size. "
+                "Got " + std::to_string(max_accels_.size()) + " and " + std::to_string(max_decels_.size()) + "."
+            );
+        }
+
+
+        for (size_t i = 0; i < min_velocities_.size(); ++i) {
+
+            if (max_velocities_[i] < 0) {
+
+                throw std::runtime_error(
+                    "Parameter validation failed: 'max_velocitie' component [" + std::to_string(i) + "] (" + 
+                    std::to_string(max_velocities_[i]) + ") is smaller than 0."
+                );
+            }
+
+            if (min_velocities_[i] > 0 ) {
+
+                throw std::runtime_error(
+                    "Parameter validation failed: 'min_velocity' component [" + std::to_string(i) + "] (" + 
+                    std::to_string(min_velocities_[i]) + ") is greater than 0."
+                );
+            }
+            if (max_accels_[i] < 0) {
+
+                throw std::runtime_error(
+                    "Parameter validation failed: 'max_accels' component [" + std::to_string(i) + "] (" + 
+                    std::to_string(max_accels_[i]) + ") is smaller than 0."
+                );
+            }
+            if (max_decels_[i] > 0) {
+
+                throw std::runtime_error(
+                    "Parameter validation failed: 'max_decel' component [" + std::to_string(i) + "] (" + 
+                    std::to_string(max_decels_[i]) + ") is greater than 0."
+                );
+            }
+        }
+    }
+
     void get_motor_commands(float lin_vel, float ang_vel)
     {
         float wheel_ang_vel_l = 0;
