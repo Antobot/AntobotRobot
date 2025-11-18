@@ -31,7 +31,7 @@ class AntobotControl : public rclcpp::Node
         this->declare_parameter<std::vector<double>>("max_velocity", std::vector<double>{0.5, 0.5});
         this->declare_parameter<std::vector<double>>("min_velocity", std::vector<double>{-0.5, -0.5});
         this->declare_parameter<std::vector<double>>("max_accel", std::vector<double>{0.2, 0.5});
-        this->declare_parameter<std::vector<double>>("max_decel", std::vector<double>{-1.0, -1.0});
+        this->declare_parameter<std::vector<double>>("max_decel", std::vector<double>{-3.0, -3.0});
         this->declare_parameter<double>("frequency", 30.0);
         this->declare_parameter<double>("velocity_timeout", 0.1);
 
@@ -95,6 +95,8 @@ class AntobotControl : public rclcpp::Node
     // Functions
     void timer_callback()
     {   
+        velocity_smoother();
+
         // Check for velocity timeout
         double time_since_cmd = (this->now() - last_command_time_).seconds();
         if (time_since_cmd > velocity_timeout_)
@@ -133,13 +135,13 @@ class AntobotControl : public rclcpp::Node
         robot_lin_vel_cmd = msg.linear.x;
         robot_ang_vel_cmd = -1.0*msg.angular.z;
 
-        velocity_smoother();
+        last_command_time_ = this->now();
     }
 
     // refer: https://github.com/ros-navigation/navigation2/blob/main/nav2_smoother/src/nav2_smoother.cpp
     void velocity_smoother()
     {
-        last_command_time_ = this->now();
+        
         float robot_lin_vel_cmd_current, robot_ang_vel_cmd_current;
         robot_lin_vel_cmd_current = robot_lin_vel_cmd_last;
         robot_ang_vel_cmd_current = robot_ang_vel_cmd_last;
@@ -234,6 +236,16 @@ class AntobotControl : public rclcpp::Node
                     "Parameter validation failed: 'max_decel' component [" + std::to_string(i) + "] (" + 
                     std::to_string(max_decels_[i]) + ") is greater than 0."
                 );
+            }
+        }
+
+        for (size_t i = 0; i < max_decels_.size(); ++i) {
+            if (max_decels_[i] > -3.0){
+                
+                RCLCPP_WARN_STREAM(this->get_logger(), "Parameter validation failed: 'max_decel' component [" << i << "] (" << 
+                    max_decels_[i] << ") is greater than -3.0.");
+
+                max_decels_[i] = -3.0;
             }
         }
     }
