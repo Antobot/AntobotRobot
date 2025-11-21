@@ -108,7 +108,7 @@ class robotMonitor(Node):
         self.sub_GPS_data = self.create_subscription(NavSatFix,"/antobot_gps",self.GPS_callback,10)        # Should raw GPS data be used? What if it stops coming?
         self.sub_GPS_data
         self.sub_IMU = self.create_subscription(Imu,'/imu/data_corrected',  self.imu_callback,10)          # Subscriber for imu data corrected
-        self.sub_cmdVel = self.create_subscription(Twist,'/antobot_robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
+        self.sub_cmdVel = self.create_subscription(Twist,'/antobot/robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
 
         # Publish safety critical data
         self.pub_error_lv1_stk = self.create_publisher(Bool,"/as/error_lv1_stk",1)
