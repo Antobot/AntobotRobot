@@ -133,7 +133,7 @@ class AntobotControl : public rclcpp::Node
     {
         //RCLCPP_INFO(this->get_logger(), "in robot cmd vel callback");
         robot_lin_vel_cmd = msg.linear.x;
-        robot_ang_vel_cmd = -1.0*msg.angular.z;
+        robot_ang_vel_cmd = msg.angular.z;
 
         last_command_time_ = this->now();
     }
@@ -257,8 +257,8 @@ class AntobotControl : public rclcpp::Node
 
         wheel_vel_cmd = std::vector<float>();
 
-        wheel_ang_vel_l = (lin_vel + ang_vel * wheel_base_/2)/wheel_radius_;
-        wheel_ang_vel_r = (lin_vel - ang_vel * wheel_base_/2)/wheel_radius_;
+        wheel_ang_vel_l = (lin_vel - ang_vel * wheel_base_/2)/wheel_radius_;
+        wheel_ang_vel_r = (lin_vel + ang_vel * wheel_base_/2)/wheel_radius_;
 
         // TODO: Unit conversions (?)
 
