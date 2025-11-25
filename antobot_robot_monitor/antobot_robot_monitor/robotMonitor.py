@@ -41,7 +41,7 @@ class robotMonitor(Node):
     def __init__(self):
 
         super().__init__('robotMonitor')
-                
+        self.logger = self.get_logger()                
         self.As_lat_past = []
         self.As_lon_past = []
         self.As_lat = None
@@ -108,7 +108,7 @@ class robotMonitor(Node):
         self.sub_GPS_data = self.create_subscription(NavSatFix,"/antobot_gps",self.GPS_callback,10)        # Should raw GPS data be used? What if it stops coming?
         self.sub_GPS_data
         self.sub_IMU = self.create_subscription(Imu,'/imu/data_corrected',  self.imu_callback,10)          # Subscriber for imu data corrected
-        self.sub_cmdVel = self.create_subscription(Twist,'/antobot_robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
+        self.sub_cmdVel = self.create_subscription(Twist,'/antobot/robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
 
         # Publish safety critical data
         self.pub_error_lv1_stk = self.create_publisher(Bool,"/as/error_lv1_stk",1)
@@ -224,13 +224,13 @@ class robotMonitor(Node):
         # Logging
         if stuck_straightMove_lvl_i != self.stuck_straightMove_lvl:
             if stuck_straightMove_lvl_i == 3:
-                rospy.logerr("MV0100: Robot has been stuck for 30 seconds (straight move)")
+                self.logger.error("MV0100: Robot has been stuck for 30 seconds (straight move)")
             elif stuck_straightMove_lvl_i == 2:
-                rospy.logwarn("MV0100: Robot has been stuck for 15 seconds (straight move)")
+                self.logger.warning("MV0100: Robot has been stuck for 15 seconds (straight move)")
             elif stuck_straightMove_lvl_i == 1:
-                rospy.logwarn("MV0100: Robot has been stuck for 5 seconds (straight move)")
+                self.logger.warning("MV0100: Robot has been stuck for 5 seconds (straight move)")
             elif stuck_straightMove_lvl_i == 0:
-                rospy.loginfo("MV0100: Robot no longer stuck (straight move)")
+                self.logger.info("MV0100: Robot no longer stuck (straight move)")
             self.stuck_straightMove_lvl = stuck_straightMove_lvl_i
 
         self.stuck_straightMove_f = False   # Reset the flag
@@ -256,13 +256,13 @@ class robotMonitor(Node):
         # Logging
         if stuck_spotTurn_lvl_i != self.stuck_spotTurn_lvl:
             if stuck_spotTurn_lvl_i == 3:
-                rospy.logerr("MV0101: Robot has been stuck for 30 seconds (spot turn)")
+                self.logger.error("MV0101: Robot has been stuck for 30 seconds (spot turn)")
             elif stuck_spotTurn_lvl_i == 2:
-                rospy.logwarn("MV0101: Robot has been stuck for 15 seconds (spot turn)")
+                self.logger.warning("MV0101: Robot has been stuck for 15 seconds (spot turn)")
             elif stuck_spotTurn_lvl_i == 1:
-                rospy.logwarn("MV0101: Robot has been stuck for 5 seconds (spot turn)")
+                self.logger.warning("MV0101: Robot has been stuck for 5 seconds (spot turn)")
             elif stuck_spotTurn_lvl_i == 0:
-                rospy.loginfo("MV0101: Robot no longer stuck (spot turn)")
+                self.logger.info("MV0101: Robot no longer stuck (spot turn)")
             self.stuck_spotTurn_lvl = stuck_spotTurn_lvl_i
             
         self.stuck_spotTurn_f = False   # Reset the flag
@@ -376,19 +376,19 @@ class robotMonitor(Node):
         # Logging
         if pitch_lvl_i != self.pitch_lvl:
             if pitch_lvl_i == 3:
-                rospy.logerr("SN5001: Robot is pitching too far forward!")
+                self.logger.error("SN5001: Robot is pitching too far forward!")
             elif pitch_lvl_i == 2:
-                rospy.logwarn("SN5001: Robot is pitching forward")
+                self.logger.warning("SN5001: Robot is pitching forward")
             elif pitch_lvl_i == 1:
-                rospy.loginfo("SN5001: Robot is pitching slightly forward")
+                self.logger.info("SN5001: Robot is pitching slightly forward")
             elif pitch_lvl_i == 0:
-                rospy.loginfo("SN5000: Robot is no longer pitching!")
+                self.logger.info("SN5000: Robot is no longer pitching!")
             elif pitch_lvl_i == -1:
-                rospy.loginfo("SN5000: Robot is pitching slightly backward")
+                self.logger.info("SN5000: Robot is pitching slightly backward")
             elif pitch_lvl_i == -2:
-                rospy.logwarn("SN5000: Robot is pitching backward")
+                self.logger.warning("SN5000: Robot is pitching backward")
             elif pitch_lvl_i == -3:
-                rospy.logerr("SN5000: Robot is pitching too far backward!")
+                self.logger.error("SN5000: Robot is pitching too far backward!")
             self.pitch_lvl = pitch_lvl_i
 
     def roll_angle(self, roll):
@@ -417,19 +417,19 @@ class robotMonitor(Node):
         # Logging
         if roll_lvl_i != self.roll_lvl:
             if roll_lvl_i == 3:
-                rospy.logerr("SN5011: Robot is rolling too far right!")
+                self.logger.error("SN5011: Robot is rolling too far right!")
             elif roll_lvl_i == 2:
-                rospy.logwarn("SN5011: Robot is rolling right")
+                self.logger.warning("SN5011: Robot is rolling right")
             elif roll_lvl_i == 1:
-                rospy.loginfo("SN5011: Robot is rolling slightly right")
+                self.logger.info("SN5011: Robot is rolling slightly right")
             elif roll_lvl_i == 0:
-                rospy.loginfo("SN5010: Robot is no longer rolling!")
+                self.logger.info("SN5010: Robot is no longer rolling!")
             elif roll_lvl_i == -1:
-                rospy.loginfo("SN5010: Robot is rolling slightly left")
+                self.logger.info("SN5010: Robot is rolling slightly left")
             elif roll_lvl_i == -2:
-                rospy.logwarn("SN5010: Robot is rolling left")
+                self.logger.warning("SN5010: Robot is rolling left")
             elif roll_lvl_i == -3:
-                rospy.logerr("SN5010: Robot is rolling too far left!")
+                self.logger.error("SN5010: Robot is rolling too far left!")
             self.roll_lvl = roll_lvl_i
 
 
