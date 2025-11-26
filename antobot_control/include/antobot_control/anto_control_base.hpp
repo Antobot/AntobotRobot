@@ -160,90 +160,79 @@ public:
     {
         const auto & p = state_.params;
 
-        // Compute dt for control cycle
         double dt = now_time_sec - state_.status.last_control_update_sec;
         if (state_.status.last_control_update_sec <= 0.0 || dt <= 0.0) {
-            // First run or non-positive dt: approximate dt by control period
             dt = (p.control_frequency_hz > 0.0) ?
                 (1.0 / p.control_frequency_hz) : 0.0;
         }
         state_.status.last_control_update_sec = now_time_sec;
 
-        // Timeout check
         if (p.enable_timeout) {
             double dt_cmd = now_time_sec - state_.status.last_robot_cmd_time_sec;
             if (!state_.status.has_robot_cmd || dt_cmd > p.velocity_timeout_sec) {
                 // Stop robot on timeout
                 state_.smoothed_cmd.linear  = 0.0;
                 state_.smoothed_cmd.angular = 0.0;
-                state_.clipped_cmd = state_.smoothed_cmd;
-                state_.status.timed_out = true;
+                state_.clipped_cmd          = state_.smoothed_cmd;
+                state_.status.timed_out     = true;
                 return;
             }
         }
 
-        // Velocity clamping
+
         state_.clipped_cmd.linear = std::clamp(
             state_.raw_cmd.linear, p.min_linear, p.max_linear);
         state_.clipped_cmd.angular = std::clamp(
             state_.raw_cmd.angular, p.min_angular, p.max_angular);
 
-        // If smoothing disabled, use clipped command directly
-        if (!p.enable_smoothing || dt <= 0.0) {
+
+        if (!p.enable_smoothing) {
             state_.smoothed_cmd = state_.clipped_cmd;
             state_.status.timed_out = false;
             return;
         }
 
-        // Acceleration / deceleration constraints
-        const auto prev = state_.smoothed_cmd;     // previous smoothed command
-        const auto cmd  = state_.clipped_cmd;      // current target (after clamp)
+        const double freq = (p.control_frequency_hz > 0.0) ? p.control_frequency_hz : 1.0;
+        auto apply_constraints = [freq](double v_curr,
+                                        double v_cmd,
+                                        double accel,
+                                        double decel) -> double
+        {
+            double dv = v_cmd - v_curr;
 
-        // Linear
-        double v_curr = prev.linear;
-        double v_cmd  = cmd.linear;
-        double dv     = v_cmd - v_curr;
+            double v_component_max;
+            double v_component_min;
 
-        double dv_max = 0.0;
-        double dv_min = 0.0;
+            if (std::fabs(v_cmd) >= std::fabs(v_curr) && v_curr * v_cmd >= 0.0) {
+                v_component_max =  accel / freq;
+                v_component_min = -accel / freq;
+            } else {
+                v_component_max = -decel / freq;
+                v_component_min =  decel / freq;
+            }
 
-        if (std::fabs(v_cmd) >= std::fabs(v_curr) && v_cmd * v_curr >= 0.0) {
-            // Accelerating in same direction
-            dv_max =  p.max_linear_accel * dt;
-            dv_min = -p.max_linear_accel * dt;
-        } else {
-            // Decelerating or changing direction
-            dv_max = -p.max_linear_decel * dt;
-            dv_min =  p.max_linear_decel * dt;
-        }
-        double dv_clamped = std::clamp(dv, dv_min, dv_max);
-        double new_linear = v_curr + dv_clamped;
+            double dv_clamped = std::clamp(dv, v_component_min, v_component_max);
+            return v_curr + dv_clamped;
+        };
 
-        // Angular
-        double w_curr = prev.angular;
-        double w_cmd  = cmd.angular;
-        double dw     = w_cmd - w_curr;
+        double v_curr = state_.smoothed_cmd.linear;
+        double w_curr = state_.smoothed_cmd.angular;
 
-        double dw_max = 0.0;
-        double dw_min = 0.0;
+        double v_cmd  = state_.clipped_cmd.linear;
+        double w_cmd  = state_.clipped_cmd.angular;
 
-        if (std::fabs(w_cmd) >= std::fabs(w_curr) && w_cmd * w_curr >= 0.0) {
-            // Accelerating in same direction
-            dw_max =  p.max_angular_accel * dt;
-            dw_min = -p.max_angular_accel * dt;
-        } else {
-            // Decelerating or changing direction
-            dw_max =  p.max_angular_decel * dt;
-            dw_min = -p.max_angular_decel * dt;
-        }
-        double dw_clamped = std::clamp(dw, dw_min, dw_max);
-        double new_angular = w_curr + dw_clamped;
+        double new_linear  = apply_constraints(v_curr, v_cmd,
+                                            p.max_linear_accel,
+                                            p.max_linear_decel);
+        double new_angular = apply_constraints(w_curr, w_cmd,
+                                            p.max_angular_accel,
+                                            p.max_angular_decel);
 
         state_.smoothed_cmd.linear  = new_linear;
         state_.smoothed_cmd.angular = new_angular;
         state_.status.timed_out = false;
     }
-
+    
     // ======================================================================
     // wheel_speed_compute (to be implemented by subclasses)
     // ======================================================================
