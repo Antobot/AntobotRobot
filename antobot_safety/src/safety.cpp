@@ -11,6 +11,7 @@
 #include "std_msgs/msg/int16_multi_array.hpp"
 #include "std_msgs/msg/int8.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
@@ -25,7 +26,7 @@ class AntobotSafety : public rclcpp::Node
 
         sub_safety_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/safety/cmd_vel", 10,
             std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
-        sub_uss_dist_ = this->create_subscription<std_msgs::msg::Int16MultiArray>("/antobridge/uss_dist", 10, 
+        sub_uss_dist_ = this->create_subscription<antobot_platform_msgs::msg::UInt16Array>("/antobridge/uss_dist", 10,
             std::bind(&AntobotSafety::ussDistCallback, this, _1));
         sub_release_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/force_stop_release", 10, 
             std::bind(&AntobotSafety::releaseCallback, this, _1));
@@ -35,7 +36,7 @@ class AntobotSafety : public rclcpp::Node
             std::bind(&AntobotSafety::bumpBackCallback, this, _1));
 
         cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10);
-        uss_dist_filt_pub_ = this->create_publisher<std_msgs::msg::Int16MultiArray>("/antobot/safety/uss_dist", 10);
+        uss_dist_filt_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/antobot/safety/uss_dist", 10);
         force_stop_type_pub_ = this->create_publisher<std_msgs::msg::Int8>("/antobot/safety/force_stop_type", 10);       // 0 - none (or release); 
                                                                                                                         // 1-8: USS
                                                                                                                             // 1 - front left; 2 - front; 3 - front right; 4 - right; 
@@ -48,7 +49,7 @@ class AntobotSafety : public rclcpp::Node
         timer_ = this->create_wall_timer(40ms, std::bind(&AntobotSafety::timer_callback, this));
 
         // Initialising uss_dist_filt with fake data
-        std_msgs::msg::Int16MultiArray uss_dist_filt_init;
+        antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i=0; i<8; i++)
         {
             uss_dist_filt_init.data.push_back(200);
@@ -63,14 +64,14 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::TimerBase::SharedPtr timer_;
     
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
-    rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr uss_dist_filt_pub_;
+    rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr uss_dist_filt_pub_;
     rclcpp::Publisher<std_msgs::msg::Int8>::SharedPtr force_stop_type_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr safe_operation_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
     
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_safety_cmd_vel_;
-    rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr sub_uss_dist_;
+    rclcpp::Subscription<antobot_platform_msgs::msg::UInt16Array>::SharedPtr sub_uss_dist_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_release_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
@@ -116,7 +117,7 @@ class AntobotSafety : public rclcpp::Node
     float safety_light_freq;
     clock_t t_safety_light;     // Can be used to make the lights blink, if desired
 
-    std_msgs::msg::Int16MultiArray uss_dist_filt;
+    antobot_platform_msgs::msg::UInt16Array uss_dist_filt;
 
     std::string robot_role;
     int safety_level;
@@ -579,7 +580,7 @@ class AntobotSafety : public rclcpp::Node
         
     }
 
-    void ussDistCallback(const std_msgs::msg::Int16MultiArray &msg)
+    void ussDistCallback(const antobot_platform_msgs::msg::UInt16Array &msg)
     {
         /*  Reads in the data from the ultrasonic sensors and, based on the current movement of the robot, makes a recommendation 
             for whether the robot should slow down or whether its current speed/movement is acceptable. */
@@ -589,7 +590,7 @@ class AntobotSafety : public rclcpp::Node
         //  Outputs: publishes filtered USS data to /antobot_safety/uss_dist ROS topic
 
         
-        std_msgs::msg::Int16MultiArray uss_dist_filt_all;
+        antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
         uint16_t uss_dist_ar[8];
         uint16_t uss_dist_filt_i;
         for (int i=0; i<8; i++)
