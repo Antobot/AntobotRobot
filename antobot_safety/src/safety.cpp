@@ -81,7 +81,7 @@ class AntobotSafety : public rclcpp::Node
     size_t count_;
 
     std::vector<std::vector<int>> uss_dist_windows;
-    std::vector<bool> light_cmd_ar = {false, false};
+    std::vector<bool> light_cmd_arr = {false, false};
 
     float time_to_collision = 100;
     float lin_vel_thresh = 0.11;
@@ -218,6 +218,7 @@ class AntobotSafety : public rclcpp::Node
                 RCLCPP_INFO(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (10s)");
                 //t_lastStopTriggerWarning = clock();
                 time_lastStopTriggerWarning = std::chrono::steady_clock::now();
+                safe_operation = false;
             }
         }
 
@@ -454,8 +455,8 @@ class AntobotSafety : public rclcpp::Node
         {
             // Blinking with constant frequency (light_freq)
             lightCmdFreq();
-            lights_f_cmd.data = light_cmd_ar[0];
-            lights_b_cmd.data = light_cmd_ar[1];
+            lights_f_cmd.data = light_cmd_arr[0];
+            lights_b_cmd.data = light_cmd_arr[1];
         }
         
         // Publishes the data to ROS
@@ -480,8 +481,8 @@ class AntobotSafety : public rclcpp::Node
         if (duration > std::chrono::milliseconds(t_light_freq_thresh))
         {   
             //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: lightCmdFreq" << duration_ms.count() << " ms");
-            light_cmd_ar[0] = !light_cmd_ar[0];
-            light_cmd_ar[1] = !light_cmd_ar[1];
+            light_cmd_arr[0] = !light_cmd_arr[0];
+            light_cmd_arr[1] = !light_cmd_arr[1];
             t_safety_light = clock();
             time_safety_light = std::chrono::steady_clock::now();
         }
@@ -610,6 +611,8 @@ class AntobotSafety : public rclcpp::Node
         cmd_vel_msg.linear.x = linear_vel;
         cmd_vel_msg.angular.z = angular_vel;
 
+        safe_operation = true;
+
         // Provides time that the command was received
         t_lastRcvdCmdVel = clock();
         time_lastRcvdCmdVel = std::chrono::steady_clock::now();
@@ -658,6 +661,16 @@ class AntobotSafety : public rclcpp::Node
             force_stop_bump = false;
             force_stop_type = 0;
             t_release = clock();
+
+            std_msgs::msg::Bool lights_f_cmd;
+            std_msgs::msg::Bool lights_b_cmd;
+
+            lights_f_cmd.data = false;
+            lights_b_cmd.data = false;
+
+            lights_f_pub_->publish(lights_f_cmd);
+            lights_b_pub_->publish(lights_b_cmd);
+
         }
         
     }
