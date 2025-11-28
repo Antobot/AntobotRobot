@@ -47,8 +47,6 @@ class AntobotSafety : public rclcpp::Node
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
 
-        timer_ = this->create_wall_timer(40ms, std::bind(&AntobotSafety::update, this));
-
         // Initialising uss_dist_filt with fake data
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i=0; i<8; i++)
@@ -56,6 +54,21 @@ class AntobotSafety : public rclcpp::Node
             uss_dist_filt_init.data.push_back(200);
         }
         uss_dist_filt = uss_dist_filt_init;
+        
+
+        this->declare_parameter<double>("frequency", 30.0);
+        frequency_ = this->get_parameter("frequency").as_double();
+
+        this->declare_parameter<bool>("uss_enable", false);
+        uss_enable = this->get_parameter("uss_enable").as_bool();
+
+
+        std::chrono::duration<double> period_sec(1.0 / frequency_);
+        timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
+
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: frequency_: " << frequency_);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: uss_enable: " << uss_enable);
+
     }
 
   private:
@@ -134,6 +147,9 @@ class AntobotSafety : public rclcpp::Node
 
     bool safe_operation;
 
+    double frequency_;
+    bool uss_enable = false;
+
     /*
     float robot_lin_vel_cmd;
     float robot_ang_vel_cmd;
@@ -151,9 +167,8 @@ class AntobotSafety : public rclcpp::Node
     {
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
         */
-
         // Check USS recommendation
-        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8)   // Only consider USS for specific defined safety levels
+        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && uss_enable)   // Only consider USS for specific defined safety levels
         {
             if (ussDistSafetyCheck() && !force_stop && !force_stop_release) //Safety check not pass, not force stopped, no release // UNCOMMENT TO ENABLE USS!!
             {
@@ -202,8 +217,8 @@ class AntobotSafety : public rclcpp::Node
         // Check time of last received command - if none received in the last ~1s, the robot should stop
         //if ((float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC > 0.05)      // This should NOT use ROS time, as if ROS stops, it should still stop the robot
         auto duration = std::chrono::steady_clock::now() - time_lastRcvdCmdVel;
-        //auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
+        // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
         if (duration > std::chrono::milliseconds(50))
         {   
             //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped2" << (float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC);
