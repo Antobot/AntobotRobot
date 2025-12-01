@@ -59,6 +59,10 @@ class AntobotControl : public rclcpp::Node
 
         last_command_time_ = this->now();
 
+        old_pos.x = 0.0;
+        old_pos.y = 0.0;
+        old_angle = 0.0;
+
     }
  
   private:
@@ -335,28 +339,65 @@ class AntobotControl : public rclcpp::Node
 
     }
 
+    double deltaTimeOfOdom() {
+        static bool initialized = false;
+        static rclcpp::Time last_time;
+
+        double dt = 0.0;
+        rclcpp::Time now = this->now();
+
+        if (!initialized) {
+            last_time = now;
+            initialized = true;
+        } else {
+            dt = (now - last_time).seconds();
+            last_time = now;
+        }
+        return dt;
+    }
+
     geometry_msgs::msg::Pose calc_odom(float lin_vel, float ang_vel)
     {
         auto pose_odom = geometry_msgs::msg::Pose();
         auto new_pos = geometry_msgs::msg::Point();
         auto new_quat = geometry_msgs::msg::Quaternion();
 
-        float elapsed_time = 0.04;
+        // float elapsed_time = 0.04;
+        double dt = deltaTimeOfOdom();
+        if (dt < 0.002 || dt > 0.2) {
+            dt = 0.0;
+        }
 
         // Calculate new angle
-        float new_angle = old_angle + elapsed_time * ang_vel;
+        // float new_angle = old_angle + elapsed_time * ang_vel;
+        float new_angle = old_angle + ang_vel * dt;
+
+        new_pos.x = old_pos.x + lin_vel * dt * std::cos(old_angle);
+        new_pos.y = old_pos.y + lin_vel * dt * std::sin(old_angle);
+
         old_angle = new_angle;
-        new_quat.x = 0;      // Assume 0 because both roll and pitch are 0
-        new_quat.y = 0;      // Assume 0 because both roll and pitch are 0
-        new_quat.z = sin(new_angle/2);
-        new_quat.w = cos(new_angle/2);
+        old_pos = new_pos;
+
+        new_quat.x = 0.0;
+        new_quat.y = 0.0;
+        new_quat.z = std::sin(new_angle / 2.0);
+        new_quat.w = std::cos(new_angle / 2.0);
+
+        pose_odom.position = new_pos;
         pose_odom.orientation = new_quat;
 
-        // Calculate new position
-        new_pos.x = old_pos.x + lin_vel * elapsed_time * cos(new_angle);
-        new_pos.y = old_pos.y + lin_vel * elapsed_time * sin(new_angle);
-        pose_odom.position = new_pos;
-        old_pos = new_pos;
+        // old_angle = new_angle;
+        // new_quat.x = 0;      // Assume 0 because both roll and pitch are 0
+        // new_quat.y = 0;      // Assume 0 because both roll and pitch are 0
+        // new_quat.z = sin(new_angle/2);
+        // new_quat.w = cos(new_angle/2);
+        // pose_odom.orientation = new_quat;
+        //
+        // // Calculate new position
+        // new_pos.x = old_pos.x + lin_vel * elapsed_time * cos(new_angle);
+        // new_pos.y = old_pos.y + lin_vel * elapsed_time * sin(new_angle);
+        // pose_odom.position = new_pos;
+        // old_pos = new_pos;
 
         return pose_odom;
     }
