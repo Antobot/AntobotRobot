@@ -18,7 +18,7 @@ public:
 
     wheel_count_ = 4;
 
-    enabled_ = {true, false, false, false};
+    enabled_ = {true, true, true, true};
 
     zero_offset_deg_.assign(wheel_count_, 0.0);
 
@@ -97,7 +97,7 @@ private:
   }
 
   // ======================================================
-  // pos command (logical angles, 0–360 deg)
+  // pos command
   // ======================================================
   void onCmdPos(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
   {
