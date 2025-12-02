@@ -160,7 +160,7 @@ class robotMonitor(Node):
             self.stuck_spotTurn = False
 
         # Stuck while moving straight(-ish)
-        if abs(self.cmdVel_linear.x) > 0.1: # and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
+        if abs(self.cmdVel_linear.x) > 0.1 and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
             self.robot_movement_distance()
             if self.cmdVel_straight_consistency and self.robot_movement_dist5 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
                 if self.stuck_straightMove is not True:
