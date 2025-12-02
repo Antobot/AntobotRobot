@@ -60,11 +60,28 @@ target_include_directories(track_control_node
 )
 
 
+# wheelsteer_control_node
+add_executable(wheelsteer_control_node src/wheelsteer_control.cpp)
+ament_target_dependencies(wheelsteer_control_node
+  rclcpp
+  std_msgs
+  geometry_msgs
+  nav_msgs
+  antobot_platform_msgs
+)
+target_include_directories(wheelsteer_control_node
+  PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+
 install(
   TARGETS
     ant_control_node
     anto_control_node
     track_control_node
+    wheelsteer_control_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
