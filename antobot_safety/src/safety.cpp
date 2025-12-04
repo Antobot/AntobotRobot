@@ -653,7 +653,8 @@ class AntobotSafety : public rclcpp::Node
         uint16_t uss_dist_ar[8];
         uint16_t uss_dist_filt_i;
         if (use2uss) {
-            uss_dist_ar[8] = {0, msg.data[1], 0, 0, 0, msg.data[5], 0, 0};
+            uint16_t tmp[8] = {0, msg.data[1], 0, 0, 0, msg.data[5], 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
         }else {
             for (int i=0; i<8; i++)
                 uss_dist_ar[i] = msg.data[i];
