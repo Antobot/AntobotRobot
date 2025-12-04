@@ -62,6 +62,8 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("uss_enable", false);
         uss_enable = this->get_parameter("uss_enable").as_bool();
 
+        this->declare_parameter<bool>("auto_release", false);
+        auto_release = this->get_parameter("auto_release").as_bool();
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -149,6 +151,7 @@ class AntobotSafety : public rclcpp::Node
 
     double frequency_;
     bool uss_enable = false;
+    bool auto_release = false;
 
     /*
     float robot_lin_vel_cmd;
@@ -508,7 +511,7 @@ class AntobotSafety : public rclcpp::Node
         /* Automatically releases the robot from its force stopped state if the previously 
         detected object is no longer being detected */
         
-        if (force_stop)
+        if (force_stop && auto_release)
         {
             // First, check how the robot is moving
             int cmd_vel_type = getCmdVelType();
