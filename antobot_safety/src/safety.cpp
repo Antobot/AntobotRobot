@@ -65,6 +65,12 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
+        this->declare_parameter<bool>("uss_front_enable", false);
+        uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
+
+        this->declare_parameter<bool>("uss_back_enable", false);
+        uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
+
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
 
@@ -152,6 +158,8 @@ class AntobotSafety : public rclcpp::Node
     double frequency_;
     bool uss_enable = false;
     bool auto_release = false;
+    bool uss_front_enable = true;
+    bool uss_back_enable = true;
 
     /*
     float robot_lin_vel_cmd;
@@ -649,10 +657,23 @@ class AntobotSafety : public rclcpp::Node
 
         
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
-        uint16_t uss_dist_ar[8];
+        uint16_t uss_dist_ar[8] = {0};
         uint16_t uss_dist_filt_i;
-        for (int i=0; i<8; i++)
-            uss_dist_ar[i] = msg.data[i];
+        if (uss_back_enable && uss_front_enable) {
+            int16_t tmp[8] = {0, msg.data[1], 0, 0, 0, msg.data[5], 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }else if (uss_front_enable) {
+            uint16_t tmp[8] = {0, msg.data[1], 0, 0, 0, 0, 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }else if (uss_back_enable) {
+            int16_t tmp[8] = {0, 0, 0, 0, 0, msg.data[5], 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }
+        // else {
+        //     for (int i=0; i<8; i++)
+        //         uss_dist_ar[i] = msg.data[i];
+        // }
+
 
         // Define the filtered USS dist class variable 
         //uss_dist_filt = ussDistFilt(uss_dist_ar);
