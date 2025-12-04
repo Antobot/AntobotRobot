@@ -147,20 +147,20 @@ private:
       case SPOTTURN:
         // SPOTTURN
         if (wheel_count_ >= 4) {
-          target_logical_angles[0] =  315.0;// LF
-          target_logical_angles[1] =   45.0;// RF
-          target_logical_angles[2] =   45.0;// LR
-          target_logical_angles[3] =  315.0;// RR
+          target_logical_angles[0] =   45.0;// RF1
+          target_logical_angles[1] =  315.0;// LF2
+          target_logical_angles[2] =   45.0;// LR3
+          target_logical_angles[3] =  315.0;// RR4
         }
         break;
 
       case LOCK:
 
         if (wheel_count_ >= 4) {
-          target_logical_angles[0] =   45.0; // LF
-          target_logical_angles[1] =  315.0; // RF
-          target_logical_angles[2] =  315.0; // LR
-          target_logical_angles[3] =   45.0; // RR
+          target_logical_angles[0] =  315.0; // RF1
+          target_logical_angles[1] =   45.0; // LF2
+          target_logical_angles[2] =  315.0; // LR3
+          target_logical_angles[3] =   45.0; // RR4
         }
         break;
         
