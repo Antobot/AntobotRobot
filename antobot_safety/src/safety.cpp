@@ -62,6 +62,9 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("uss_enable", false);
         uss_enable = this->get_parameter("uss_enable").as_bool();
 
+        this->declare_parameter<bool>("use2uss", true);
+        use2uss = this->get_parameter("use2uss").as_bool();
+
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -149,6 +152,7 @@ class AntobotSafety : public rclcpp::Node
 
     double frequency_;
     bool uss_enable = false;
+    bool use2uss = true;
 
     /*
     float robot_lin_vel_cmd;
@@ -648,8 +652,13 @@ class AntobotSafety : public rclcpp::Node
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
         uint16_t uss_dist_ar[8];
         uint16_t uss_dist_filt_i;
-        for (int i=0; i<8; i++)
-            uss_dist_ar[i] = msg.data[i];
+        if (use2uss) {
+            uss_dist_ar[8] = {0, msg.data[1], 0, 0, 0, msg.data[5], 0, 0};
+        }else {
+            for (int i=0; i<8; i++)
+                uss_dist_ar[i] = msg.data[i];
+        }
+
 
         // Define the filtered USS dist class variable 
         //uss_dist_filt = ussDistFilt(uss_dist_ar);
