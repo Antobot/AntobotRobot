@@ -3,13 +3,49 @@
 #include <string>
 #include <cmath>
 #include <algorithm>
+#include <functional>
+#include <array>
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
-#include "std_msgs/msg/int32.hpp" 
+#include "std_msgs/msg/int32.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 
-class WheelSteerControl : public rclcpp::Node
+// Common control base
+#include "antobot_control/anto_control_base.hpp"   
+
+using std::placeholders::_1;
+
+// ======================================================================
+// Steering geometry / configuration parameters
+// ======================================================================
+namespace
+{
+  // Wheelbase (front to rear axle distance) [m]
+  constexpr double WHEEL_BASE_M   = 0.9;
+
+  // Track width (left to right wheel distance) [m]
+  constexpr double TRACK_WIDTH_M  = 1.2;
+
+  // Base angle for SPOTTURN (deg), other wheels derived from this
+  constexpr double SPOTTURN_BASE_DEG = 45.0; //RF1, LR3
+
+  // Base angle for LOCK (deg), other wheels derived from this
+  constexpr double LOCK_BASE_DEG     = 45.0; //LF2, RR4
+
+  // Small thresholds for command checking
+  constexpr double EPS_V = 1e-3;
+  constexpr double EPS_W = 1e-3;
+
+  constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+}
+
+// ======================================================================
+
+class WheelSteerControl
+  : public rclcpp::Node
+  , public antobot_control::AntoControlBase
 {
 public:
   // four control mode
@@ -31,6 +67,14 @@ public:
     
     // Lock as initial mode
     current_mode_ = LOCK; 
+
+    // Initialize common control parameters
+    antobot_control::ControlParams params;
+    params.wheel_count          = static_cast<std::size_t>(wheel_count_);
+    params.track_width          = TRACK_WIDTH_M;
+    params.control_frequency_hz = 30.0;
+    params.enable_odom          = false;   // odom not used here
+    setParams(params);
 
     RCLCPP_INFO(
       get_logger(),
@@ -60,6 +104,12 @@ public:
       "/antobot/control/wheelsteer/mode",
       10,
       std::bind(&WheelSteerControl::onModeCmd, this, std::placeholders::_1));
+
+    // Twist command (vx, vy, omega) for CRAB / COUNTERPHASE model
+    twist_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+      "/antobot/control/wheelsteer/cmd_vel",
+      50,
+      std::bind(&WheelSteerControl::onTwistCmd, this, std::placeholders::_1));
 
     // Publishers
     cmd_pos_raw_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
@@ -96,6 +146,21 @@ private:
   }
 
   // ======================================================
+  // Twist Callback (vx, vy, omega)
+  // ======================================================
+  void onTwistCmd(const geometry_msgs::msg::Twist::SharedPtr msg)
+  {
+    // Map geometry_msgs/Twist to common RobotCommand via base helper
+    const double now = this->get_clock()->now().seconds();
+    robot_cmd_vel_callback_2d(
+      msg->linear.x,   // vx
+      msg->linear.y,   // vy
+      msg->angular.z,  // omega
+      now);
+    
+  }
+
+  // ======================================================
   // Feedback Callback
   // ======================================================
   void onRawPos(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
@@ -129,38 +194,111 @@ private:
       return;
     }
 
-
     std::vector<double> target_logical_angles(wheel_count_, 0.0);
+
+    // wheel positions in body frame: x forward, y left
+    // index mapping: 0=RF1, 1=LF2, 2=LR3, 3=RR4 
+    const double L = WHEEL_BASE_M;
+    const double W = TRACK_WIDTH_M;
+    const std::array<std::pair<double,double>, 4> wheel_pos = {{
+      { +L * 0.5, -W * 0.5 },  // RF1
+      { +L * 0.5, +W * 0.5 },  // LF2
+      { -L * 0.5, +W * 0.5 },  // LR3
+      { -L * 0.5, -W * 0.5 }   // RR4
+    }};
+
+    // Use base class to apply velocity smoothing / timeout
+    const double now = this->get_clock()->now().seconds();
+    velocity_smoother(now);
+
+    // Fetch smoothed twist (vx, omega) and raw vy from base state
+    const auto & st  = getState();
+    const auto & cmd = st.smoothed_cmd;
+    const double vx  = cmd.linear;              // vx after smoothing / limiting
+    const double vy  = st.raw_cmd.linear_y;     // vy (currently passed through)
+    const double w   = cmd.angular;             // omega after smoothing / limiting
 
     // calculate pos cmds with mode called
     switch (current_mode_) {
       case CRAB:
-        // TODO: add CRAB logic
-        for(int i=0; i<wheel_count_; i++) target_logical_angles[i] = msg->data[i];
+      {
+        // CRAB: all wheels aligned with translational velocity (vx, vy)
+        const double speed = std::hypot(vx, vy);
+
+        RCLCPP_INFO(
+            get_logger(),
+            "CRAB mode: vx=%.3f, vy=%.3f, speed=%.6f",
+            vx, vy, speed);
+
+        if (speed < EPS_V) {
+          // If no clear direction, fall back to incoming cmd_pos
+          for (int i = 0; i < wheel_count_; ++i) {
+            target_logical_angles[i] = msg->data[i];
+          }
+        } else {
+          const double angle_deg = wrap360(std::atan2(vy, vx) * RAD_TO_DEG);
+          for (int i = 0; i < wheel_count_; ++i) {
+            target_logical_angles[i] = angle_deg;
+          }
+        }
         break;
+      }
 
       case COUNTERPHASE:
-        // TODO: add COUNTERPHASE logic
-        for(int i=0; i<wheel_count_; i++) target_logical_angles[i] = msg->data[i];
+      {
+        // COUNTERPHASE: wheels aligned with combined translational
+        // and rotational velocity:
+        //   v_i = [vx, vy] + omega × r_i
+        // Here we use:
+        //   vix = vx + omega * y_i
+        //   viy = vy + omega * x_i
+
+        if (std::fabs(vx) < EPS_V && std::fabs(vy) < EPS_V && std::fabs(w) < EPS_W) {
+          // No meaningful motion command: fall back to incoming cmd_pos
+          for (int i = 0; i < wheel_count_; ++i) {
+            target_logical_angles[i] = msg->data[i];
+          }
+        } else {
+          for (int i = 0; i < wheel_count_; ++i) {
+            const double x_i = wheel_pos[i].first;
+            const double y_i = wheel_pos[i].second;
+
+            const double vix = vx + w * y_i;
+            const double viy = vy + w * x_i;
+
+            if (std::fabs(vix) < EPS_V && std::fabs(viy) < EPS_V) {
+              // keep current logical if very small
+              target_logical_angles[i] = logical_pos_deg_[i];
+            } else {
+              const double angle_deg = wrap360(std::atan2(viy, vix) * RAD_TO_DEG);
+              target_logical_angles[i] = angle_deg;
+            }
+          }
+        }
         break;
+      }
 
       case SPOTTURN:
         // SPOTTURN
         if (wheel_count_ >= 4) {
-          target_logical_angles[0] =   45.0;// RF1
-          target_logical_angles[1] =  315.0;// LF2
-          target_logical_angles[2] =   45.0;// LR3
-          target_logical_angles[3] =  315.0;// RR4
+          // Use a single base angle and derive other wheels
+          const double a = SPOTTURN_BASE_DEG;
+          target_logical_angles[0] = wrap360(a);              // RF1
+          target_logical_angles[1] = wrap360(360.0 - a);      // LF2
+          target_logical_angles[2] = wrap360(a);              // LR3
+          target_logical_angles[3] = wrap360(360.0 - a);      // RR4
         }
         break;
 
       case LOCK:
 
         if (wheel_count_ >= 4) {
-          target_logical_angles[0] =  315.0; // RF1
-          target_logical_angles[1] =   45.0; // LF2
-          target_logical_angles[2] =  315.0; // LR3
-          target_logical_angles[3] =   45.0; // RR4
+          // Use a single base angle and derive other wheels
+          const double a = LOCK_BASE_DEG;
+          target_logical_angles[0] = wrap360(360.0 - a);      // RF1
+          target_logical_angles[1] = wrap360(a);              // LF2
+          target_logical_angles[2] = wrap360(360.0 - a);      // LR3
+          target_logical_angles[3] = wrap360(a);              // RR4
         }
         break;
         
@@ -218,6 +356,24 @@ private:
     RCLCPP_INFO(get_logger(), "Set zero W%d: offset=%.2f", wheel_id, zero_offset_deg_[idx]);
   }
 
+  // ======================================================================
+  // wheel_speed_compute (not used in this steering-only node)
+  // ======================================================================
+  void wheel_speed_compute() override
+  {
+    // This node only computes steering angles, wheel speeds are handled elsewhere.
+  }
+
+  // ======================================================================
+  // compute_robot_twist_from_wheels (not used in this node)
+  // ======================================================================
+  void compute_robot_twist_from_wheels(double & linear, double & angular) override
+  {
+    // This node does not compute odometry. Return zeros.
+    linear  = 0.0;
+    angular = 0.0;
+  }
+
 private:
   int wheel_count_{4};
   std::vector<bool> enabled_;
@@ -225,16 +381,14 @@ private:
   std::vector<double> raw_pos_deg_;
   std::vector<double> logical_pos_deg_;
 
-
   ControlMode current_mode_;
 
   // Subscriptions
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr raw_pos_sub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr cmd_pos_sub_;
   rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr set_zero_sub_;
-  
-  // Mode sub
-  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr mode_sub_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr           mode_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr      twist_sub_;
 
   // Publishers
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cmd_pos_raw_pub_;
