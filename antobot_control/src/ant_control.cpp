@@ -33,7 +33,7 @@ class AntobotControl : public rclcpp::Node
         this->declare_parameter<std::vector<double>>("max_accel", std::vector<double>{0.2, 0.5});
         this->declare_parameter<std::vector<double>>("max_decel", std::vector<double>{-3.0, -3.0});
         this->declare_parameter<double>("frequency", 30.0);
-        this->declare_parameter<double>("velocity_timeout", 0.1);
+        this->declare_parameter<double>("velocity_timeout", 0.15);
 
         wheel_base_  = this->get_parameter("wheel_base").as_double();
         wheel_radius_ = this->get_parameter("wheel_radius").as_double();
