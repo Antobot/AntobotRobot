@@ -1,0 +1,16 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+Visualization Manager:
+  Class: rviz/VisualizationManager
+  Fixed Frame: base_link
+  Displays:
+    - Class: rviz/Marker
+      Name: Polygons
+      Marker Topic: /costmap_converter/polygon_markers
+      Queue Size: 10
+    - Class: rviz/Map
+      Name: Costmap
+      Topic: /costmap/costmap
+      Alpha: 0.7
+      Draw Behind: true
