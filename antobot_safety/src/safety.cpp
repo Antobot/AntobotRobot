@@ -660,7 +660,7 @@ class AntobotSafety : public rclcpp::Node
         uint16_t uss_dist_ar[8] = {0};
         uint16_t uss_dist_filt_i;
         if (uss_back_enable && uss_front_enable) {
-            int16_t tmp[8] = {0, msg.data[1], 0, 0, 0, msg.data[5], 0, 0};
+            int16_t tmp[8] = {0, msg.data[1], 0, 0, msg.data[4], 0, 0, 0};
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
         }else if (uss_front_enable) {
             uint16_t tmp[8] = {0, msg.data[1], 0, 0, 0, 0, 0, 0};
