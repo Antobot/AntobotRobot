@@ -16,33 +16,37 @@ find_package(std_msgs REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(costmap_converter REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
-add_executable(occgrid_to_polygons src/occgrid_to_polygons.cpp)
-ament_target_dependencies(occgrid_to_polygons
+add_executable(occgrid_converter_bridge src/occgrid_converter_bridge.cpp)
+ament_target_dependencies(occgrid_converter_bridge
   rclcpp
   nav_msgs
   geometry_msgs
   visualization_msgs
   costmap_converter_msgs
-  OpenCV
   std_msgs
   nav2_costmap_2d
   pluginlib
   costmap_converter
 )
-target_link_libraries(occgrid_to_polygons ${OpenCV_LIBS})
-
-install(TARGETS occgrid_to_polygons
+install(TARGETS occgrid_converter_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 
-add_executable(collision_sat_checker src/collision_sat_checker.cpp)
-ament_target_dependencies(collision_sat_checker
+add_executable(collision_checker src/collision_checker.cpp)
+ament_target_dependencies(collision_checker
   rclcpp
   geometry_msgs
+  visualization_msgs
   costmap_converter_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
 )
-install(TARGETS collision_sat_checker
+install(TARGETS collision_checker
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -50,14 +54,9 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 
-install(DIRECTORY rviz
+install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME}
 )
 
-install(PROGRAMS
-  scripts/compare_polygons.py
-  scripts/footprint_pub.py
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 ament_package()

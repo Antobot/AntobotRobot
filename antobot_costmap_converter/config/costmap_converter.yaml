@@ -1,0 +1,8 @@
+occgrid_converter_bridge:
+  ros__parameters:
+    converter_plugin: "costmap_converter::CostmapToPolygonsDBSMCCH"
+    occupied_min_value: 60
+    cluster_max_distance: 0.4
+    cluster_min_pts: 2
+    cluster_max_pts: 30
+    convex_hull_min_pt_separation: 0.1
