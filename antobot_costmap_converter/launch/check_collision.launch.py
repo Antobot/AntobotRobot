@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from launch.actions import TimerAction, RegisterEventHandler
+from launch.event_handlers.on_process_start import OnProcessStart
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -38,4 +40,17 @@ def generate_launch_description():
         ]
     )
 
-    return LaunchDescription([bridge, collision_checker])
+    # Delay start of `collision_checker` after `bridge`
+    delay_collision_checker_node = RegisterEventHandler(
+        OnProcessStart(
+            target_action=bridge,
+            on_start=[
+                TimerAction(
+                    period=3.0,
+                    actions=[collision_checker]
+                )
+            ]
+        )
+    )
+
+    return LaunchDescription([bridge, delay_collision_checker_node])
