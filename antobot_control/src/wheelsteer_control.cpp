@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <functional>
 #include <array>
+#include <chrono>  
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
@@ -148,6 +149,7 @@ public:
       10);
 
     {
+      // Initial steering command for the default mode
       std::vector<double> init_target(wheel_count_, 0.0);
       computeTargetAnglesForCurrentMode(
         init_target,
@@ -158,6 +160,17 @@ public:
         "Initial steering command published for mode %d",
         static_cast<int>(current_mode_));
     }
+
+    // ------------------------------------------------------------------
+    // Periodic control loop timer for wheel speed computation
+    // ------------------------------------------------------------------
+    const double dt = 1.0 / params.control_frequency_hz;
+    control_timer_ = this->create_wall_timer(
+      std::chrono::duration<double>(dt),
+      [this]()
+      {
+        this->wheel_speed_compute();
+      });
   }
 
 private:
@@ -616,6 +629,9 @@ private:
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cmd_pos_raw_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr real_pos_pub_;
   rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr pub_wheel_vel_cmd_;
+
+  // Periodic control loop timer
+  rclcpp::TimerBase::SharedPtr control_timer_;
 };
 
 int main(int argc, char ** argv)
