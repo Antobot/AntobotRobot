@@ -8,41 +8,42 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <std_msgs/msg/float64.hpp>
-#include <std_msgs/msg/int32.hpp>
+#include <std_msgs/msg/int16.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 class CollisionChecker : public rclcpp::Node {
 public:
-  CollisionChecker() : rclcpp::Node("collision_sat_checker"), tf_buffer_(get_clock()), tf_listener_(tf_buffer_) {
+  CollisionChecker() : rclcpp::Node("collision_sat_checker") {
 
     // Parameters
     declare_parameter<std::string>("footprint_topic", "/costmap/footprint");
     declare_parameter<double>("inflation_factor_1", 1.5);
     declare_parameter<double>("inflation_factor_2", 2.0);
-    declare_parameter<std::string>("inflated_topic", "/costmap/footprint_2");
-    declare_parameter<std::string>("inflated_topic_1", "/costmap/footprint_1");
     declare_parameter<std::string>("clusters_topic", "/costmap_converter/obstacles");
     declare_parameter<std::string>("target_frame", "base_link");
-    declare_parameter<bool>("use_tf", false);
     declare_parameter<double>("footprint_line_width", 0.06);
     declare_parameter<double>("collision_line_width_factor", 2.0);
     declare_parameter<bool>("publish_collision_polygon", true);
-    declare_parameter<bool>("publish_collision_marker", false);
+    declare_parameter<bool>("use_swept_volume", true);
+    declare_parameter<double>("predict_horizon", 1.0);
+    declare_parameter<int>("num_steps", 10);
+    declare_parameter<bool>("publish_swept_marker", true);
+    declare_parameter<double>("swept_line_width", 0.06);
+    declare_parameter<std::string>("collision_strategy", "inflate");
 
     get_parameter("footprint_topic", footprint_topic_);
     get_parameter("inflation_factor_1", inflation_factor_1);
     get_parameter("inflation_factor_2", inflation_factor_2);
     get_parameter("clusters_topic", clusters_topic_);
     get_parameter("target_frame", target_frame_);
-    get_parameter("use_tf", use_tf_);
-    get_parameter("footprint_line_width", footprint_line_width_);
-    get_parameter("collision_line_width_factor", collision_line_width_factor_);
     get_parameter("publish_collision_polygon", publish_collision_polygon_);
-    get_parameter("publish_collision_marker", publish_collision_marker_);
+    get_parameter("predict_horizon", predict_horizon_);
+    get_parameter("num_steps", num_steps_);
+    get_parameter("publish_swept_marker", publish_swept_marker_);
+    get_parameter("swept_line_width", swept_line_width_);
+    get_parameter("collision_strategy", collision_strategy_);
 
     // Topic
     sub_footprint_ = create_subscription<geometry_msgs::msg::PolygonStamped>(
@@ -50,12 +51,15 @@ public:
     sub_clusters_ = create_subscription<costmap_converter_msgs::msg::ObstacleArrayMsg>(
       clusters_topic_, rclcpp::QoS(10), std::bind(&CollisionChecker::cbClusters, this, std::placeholders::_1));
 
+    sub_cmd_vel_ = create_subscription<geometry_msgs::msg::Twist>(
+      "/antobot/teleop/cmd_vel", rclcpp::QoS(10), std::bind(&CollisionChecker::cbCmdVel, this, std::placeholders::_1));
+
       
-    pub_inflated1_ = create_publisher<geometry_msgs::msg::PolygonStamped>("/collision_checker/footprint_1", 10);
-    pub_inflated2_ = create_publisher<geometry_msgs::msg::PolygonStamped>("/collision_checker/footprint_2", 10);
     pub_collision_ = create_publisher<geometry_msgs::msg::PolygonStamped>("/collision_checker/collision_region", 10);
-    pub_collision_level_ = create_publisher<std_msgs::msg::Int32>("/collision_checker/collision_level", 10);
-    pub_time_ = create_publisher<std_msgs::msg::Float64>("/collision_checker/compute_ms", 10);
+    pub_collision_level_ = create_publisher<std_msgs::msg::Int16>("/collision_checker/collision_level", 10);
+    pub_swept_marker_ = create_publisher<visualization_msgs::msg::Marker>("/collision_checker/robot_region", 10);
+    // pub_level1_region_ = create_publisher<geometry_msgs::msg::PolygonStamped>("/collision_checker/level1_region", 10);
+    // pub_level2_region_ = create_publisher<geometry_msgs::msg::PolygonStamped>("/collision_checker/level2_region", 10);
 
     // Timer
     timer_ = create_wall_timer(std::chrono::milliseconds(200), std::bind(&CollisionChecker::tick, this));
@@ -65,62 +69,28 @@ public:
 private:
   struct Vec2 { double x, y; };
   void cbFootprint(const geometry_msgs::msg::PolygonStamped::SharedPtr msg) { last_footprint_ = *msg; }
-  void cbClusters(const costmap_converter_msgs::msg::ObstacleArrayMsg::SharedPtr msg) { last_clusters_ = *msg; }
-
-  bool transformPoint(const geometry_msgs::msg::Point32 &in,
-                      const std::string &from_frame,
-                      const std::string &to_frame,
-                      geometry_msgs::msg::Point32 &out) {
-    try {
-      geometry_msgs::msg::PointStamped ps, ts;
-      ps.header.frame_id = from_frame;
-      ps.point.x = in.x; ps.point.y = in.y; ps.point.z = 0.0;
-      ts = tf_buffer_.transform(ps, to_frame, tf2::durationFromSec(0.05));
-      out.x = (float)ts.point.x; out.y = (float)ts.point.y; out.z = 0.0f;
-      return true;
-    } catch (const tf2::TransformException &ex) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *this->get_clock(), 2000, "TF transform failed: %s", ex.what());
-      return false;
-    }
+  void cbClusters(const costmap_converter_msgs::msg::ObstacleArrayMsg::SharedPtr msg) { 
+    last_clusters_ = *msg; 
+  }
+  void cbCmdVel(const geometry_msgs::msg::Twist::SharedPtr msg) {
+     v_ = msg->linear.x; 
+     omega_ = msg->angular.z; 
+    //  RCLCPP_INFO_STREAM(this->get_logger(), "v_:" << v_ << "; omega_:" << omega_);
   }
 
   // convert from PolygonStamped to vector
-  std::vector<Vec2> polyStampedToVec(const geometry_msgs::msg::PolygonStamped &poly_stamped,
-                                     const std::string &to_frame) {
+  std::vector<Vec2> polyStampedToVec(const geometry_msgs::msg::PolygonStamped &poly_stamped) {
     std::vector<Vec2> out;
     const auto &poly = poly_stamped.polygon;
-    if (!use_tf_ || poly_stamped.header.frame_id == to_frame) {
-      out.reserve(poly.points.size());
-      for (const auto &p : poly.points) 
-        out.push_back({(double)p.x, (double)p.y});
-      return out;
-    }
     out.reserve(poly.points.size());
-    for (const auto &p : poly.points) {
-      geometry_msgs::msg::Point32 tp;
-      if (transformPoint(p, poly_stamped.header.frame_id, to_frame, tp)) {
-        out.push_back({(double)tp.x, (double)tp.y});
-      }
-    }
+    for (const auto &p : poly.points) out.push_back({(double)p.x, (double)p.y});
     return out;
   }
 
-  std::vector<Vec2> obstaclePolyToVec(const geometry_msgs::msg::Polygon &poly,
-                                      const std::string &from_frame,
-                                      const std::string &to_frame) {
+  std::vector<Vec2> obstaclePolyToVec(const geometry_msgs::msg::Polygon &poly) {
     std::vector<Vec2> out;
-    if (!use_tf_ || from_frame == to_frame) {
-      out.reserve(poly.points.size());
-      for (const auto &p : poly.points) out.push_back({(double)p.x, (double)p.y});
-      return out;
-    }
     out.reserve(poly.points.size());
-    for (const auto &p : poly.points) {
-      geometry_msgs::msg::Point32 tp;
-      if (transformPoint(p, from_frame, to_frame, tp)) {
-        out.push_back({(double)tp.x, (double)tp.y});
-      }
-    }
+    for (const auto &p : poly.points) out.push_back({(double)p.x, (double)p.y});
     return out;
   }
 
@@ -152,6 +122,13 @@ private:
     return out;
   }
 
+  static std::vector<Vec2> transformPoly(const std::vector<Vec2> &poly, double x, double y, double th) {
+    double c = std::cos(th), s = std::sin(th);
+    std::vector<Vec2> out; out.reserve(poly.size());
+    for (const auto &p : poly) out.push_back({x + c * p.x - s * p.y, y + s * p.x + c * p.y});
+    return out;
+  }
+
   static double cross(const Vec2 &a, const Vec2 &b) { return a.x*b.y - a.y*b.x; }
   static Vec2 sub(const Vec2 &a, const Vec2 &b) { return {a.x - b.x, a.y - b.y}; }
 
@@ -168,6 +145,23 @@ private:
     if (!poly.empty()) {
       if (std::hypot(poly.front().x - poly.back().x, poly.front().y - poly.back().y) < 1e-6) poly.pop_back();
     }
+  }
+
+  static std::vector<Vec2> convexHull(std::vector<Vec2> pts) {
+    std::sort(pts.begin(), pts.end(), [](const Vec2 &a, const Vec2 &b){ return a.x < b.x || (a.x == b.x && a.y < b.y); });
+    std::vector<Vec2> H;
+    for (const auto &p : pts) {
+      while (H.size() >= 2 && cross({H.back().x - H[H.size()-2].x, H.back().y - H[H.size()-2].y}, {p.x - H.back().x, p.y - H.back().y}) <= 0) H.pop_back();
+      H.push_back(p);
+    }
+    size_t lower = H.size();
+    for (int i = (int)pts.size()-2; i >= 0; --i) {
+      const auto &p = pts[i];
+      while (H.size() > lower && cross({H.back().x - H[H.size()-2].x, H.back().y - H[H.size()-2].y}, {p.x - H.back().x, p.y - H.back().y}) <= 0) H.pop_back();
+      H.push_back(p);
+    }
+    if (!H.empty()) H.pop_back();
+    return H;
   }
 
   static bool inside(const Vec2 &p, const Vec2 &A, const Vec2 &B) {
@@ -254,54 +248,239 @@ private:
       RCLCPP_INFO(get_logger(), "waiting footprint & clusters...");
       return;
     }
+
+    swept_hull_computed_ = false;
     // Transform footprint and publish inflated variants
-    auto f0 = polyStampedToVec(last_footprint_.value(), target_frame_);
+    auto f0 = polyStampedToVec(last_footprint_.value());
     auto f1 = inflate(f0, inflation_factor_1);
     auto f2 = inflate(f0, inflation_factor_2);
-    geometry_msgs::msg::PolygonStamped out1;
-    out1.header = last_footprint_.value().header;
-    out1.header.frame_id = target_frame_;
-    for (const auto &v : f1) { 
-      geometry_msgs::msg::Point32 p; 
-      p.x = (float)v.x; 
-      p.y = (float)v.y; 
-      out1.polygon.points.push_back(p); 
+    std::vector<Vec2> swept0, swept1, swept2;
+    if (collision_strategy_ == "swept"){
+      double dt = predict_horizon_ / std::max(1, num_steps_);
+      double x = 0.0, y = 0.0, th = 0.0;
+      for (int k = 0; k <= num_steps_; ++k) {
+        auto tfp0 = transformPoly(f0, x, y, th);
+        auto tfp1 = transformPoly(f1, x, y, th);
+        auto tfp2 = transformPoly(f2, x, y, th);
+        swept0.insert(swept0.end(), tfp0.begin(), tfp0.end());
+        swept1.insert(swept1.end(), tfp1.begin(), tfp1.end());
+        swept2.insert(swept2.end(), tfp2.begin(), tfp2.end());
+        double v = v_, w = omega_;
+        x += v * std::cos(th) * dt;
+        y += v * std::sin(th) * dt;
+        th += w * dt;
+      }
     }
-    pub_inflated2_->publish(out1);
+    std::vector<Vec2> hull0, hull1, hull2;
+    if (collision_strategy_ == "swept"){
+      if (!swept0.empty()) hull0 = convexHull(swept0);
+      if (!swept1.empty()) hull1 = convexHull(swept1);
+      if (!swept2.empty()) hull2 = convexHull(swept2);
+      // keep legacy marker publisher using member swept_hull_
+      swept_hull_ = hull0;
+      swept_hull_computed_ = true;
+    }
 
-    geometry_msgs::msg::PolygonStamped out2;
-    out2.header = last_footprint_.value().header;
-    out2.header.frame_id = target_frame_;
-    for (const auto &v : f2) { 
-      geometry_msgs::msg::Point32 p; 
-      p.x = (float)v.x; p.y = (float)v.y; 
-      out2.polygon.points.push_back(p); 
+    if (collision_strategy_ == "inflate") {
+      visualization_msgs::msg::Marker m1;
+      m1.header = last_footprint_.value().header;
+      m1.header.frame_id = target_frame_;
+      m1.ns = "inflate_1";
+      m1.id = 11;
+      m1.type = visualization_msgs::msg::Marker::LINE_LIST;
+      m1.action = visualization_msgs::msg::Marker::ADD;
+      m1.pose.orientation.w = 1.0;
+      m1.scale.x = std::max(0.01, swept_line_width_);
+      m1.color.r = 1.0; m1.color.g = 0.65; m1.color.b = 0.0; m1.color.a = 1.0;
+      m1.frame_locked = true;
+      if (f1.size() >= 2) {
+        for (size_t i = 0; i + 1 < f1.size(); ++i) {
+          geometry_msgs::msg::Point s, e;
+          s.x = f1[i].x; s.y = f1[i].y; s.z = 0.02;
+          e.x = f1[i+1].x; e.y = f1[i+1].y; e.z = 0.02;
+          m1.points.push_back(s);
+          m1.points.push_back(e);
+        }
+        geometry_msgs::msg::Point s, e;
+        s.x = f1.back().x; s.y = f1.back().y; s.z = 0.02;
+        e.x = f1.front().x; e.y = f1.front().y; e.z = 0.02;
+        m1.points.push_back(s);
+        m1.points.push_back(e);
+      }
+      pub_swept_marker_->publish(m1);
+
+      visualization_msgs::msg::Marker m2;
+      m2.header = m1.header;
+      m2.header.frame_id = target_frame_;
+      m2.ns = "inflate_2";
+      m2.id = 12;
+      m2.type = visualization_msgs::msg::Marker::LINE_LIST;
+      m2.action = visualization_msgs::msg::Marker::ADD;
+      m2.pose.orientation.w = 1.0;
+      m2.scale.x = m1.scale.x;
+      m2.color.r = 1.0; m2.color.g = 0.0; m2.color.b = 0.0; m2.color.a = 1.0;
+      m2.frame_locked = true;
+      if (f2.size() >= 2) {
+        for (size_t i = 0; i + 1 < f2.size(); ++i) {
+          geometry_msgs::msg::Point s, e;
+          s.x = f2[i].x; s.y = f2[i].y; s.z = 0.02;
+          e.x = f2[i+1].x; e.y = f2[i+1].y; e.z = 0.02;
+          m2.points.push_back(s);
+          m2.points.push_back(e);
+        }
+        geometry_msgs::msg::Point s, e;
+        s.x = f2.back().x; s.y = f2.back().y; s.z = 0.02;
+        e.x = f2.front().x; e.y = f2.front().y; e.z = 0.02;
+        m2.points.push_back(s);
+        m2.points.push_back(e);
+      }
+      pub_swept_marker_->publish(m2);
     }
-    pub_inflated1_->publish(out2);
+  
     
     bool collided0 = false, collided1 = false, collided2 = false;
-    size_t idx0 = (size_t)-1, idx1 = (size_t)-1, idx2 = (size_t)-1;
-    std::vector<Vec2> coll_poly0, coll_poly1, coll_poly2;
-    const std::string clusters_frame = last_clusters_->header.frame_id;
-    
+    // removed unused obstacle indices
+    std::vector<Vec2> coll_poly1, coll_poly2;
     for (size_t i = 0; i < last_clusters_->obstacles.size(); ++i) {
       const auto &poly = last_clusters_->obstacles[i].polygon;
-      auto obs = obstaclePolyToVec(poly, clusters_frame, target_frame_);
+      auto obs = obstaclePolyToVec(poly);
       if (obs.size() < 2 || f0.size() < 2) continue;
-      if (!collided2 && satOverlap(f2, obs)) { collided2 = true; idx2 = i; coll_poly2 = intersectConvex(f2, obs); }
-      if (!collided1 && satOverlap(f1, obs)) { collided1 = true; idx1 = i; coll_poly1 = intersectConvex(f1, obs); }
-      if (!collided0 && satOverlap(f0, obs)) { collided0 = true; idx0 = i; coll_poly0 = intersectConvex(f0, obs); }
+      bool use_inflate = (collision_strategy_ == "inflate");
+      bool use_swept = (collision_strategy_ == "swept") ;
+      if (!collided2) {
+        bool hit2 = (use_inflate && satOverlap(f2, obs)) || (use_swept && !hull2.empty() && satOverlap(hull2, obs));
+        if (hit2) { collided2 = true; const auto &shape = (use_swept && !hull2.empty()) ? hull2 : f2; coll_poly2 = intersectConvex(shape, obs); }
+      }
+      if (!collided1) {
+        bool hit1 = (use_inflate && satOverlap(f1, obs)) || (use_swept && !hull1.empty() && satOverlap(hull1, obs));
+        if (hit1) { collided1 = true; const auto &shape = (use_swept && !hull1.empty()) ? hull1 : f1; coll_poly1 = intersectConvex(shape, obs); }
+      }
+      // level 0 removed
     }
-    int level = -1;
-    if (collided0) level = 0; else if (collided1) level = 1; else if (collided2) level = 2;
-    std_msgs::msg::Int32 lvl; lvl.data = level; pub_collision_level_->publish(lvl);
+    if ((collision_strategy_ == "swept") && publish_swept_marker_) {
+      if (!swept_hull_computed_ && !swept0.empty()) { 
+        swept_hull_ = convexHull(swept0); 
+      }
+      visualization_msgs::msg::Marker m;
+      m.header = last_footprint_.value().header;
+      m.header.frame_id = target_frame_;
+      m.ns = "swept_volume";
+      m.id = 0;
+      m.type = visualization_msgs::msg::Marker::LINE_LIST;
+      m.action = visualization_msgs::msg::Marker::ADD;
+      m.pose.orientation.w = 1.0;
+      m.scale.x = std::max(0.01, swept_line_width_);
+      m.color.r = 0.0; m.color.g = 1.0; m.color.b = 1.0; m.color.a = 1.0;
+      m.frame_locked = true;
+      if (swept_hull_.size() >= 2) {
+        for (size_t i = 0; i + 1 < swept_hull_.size(); ++i) {
+          geometry_msgs::msg::Point s, e;
+          s.x = swept_hull_[i].x; s.y = swept_hull_[i].y; s.z = 0.02;
+          e.x = swept_hull_[i+1].x; e.y = swept_hull_[i+1].y; e.z = 0.02;
+          m.points.push_back(s);
+          m.points.push_back(e);
+        }
+        geometry_msgs::msg::Point s, e;
+        s.x = swept_hull_.back().x; s.y = swept_hull_.back().y; s.z = 0.02;
+        e.x = swept_hull_.front().x; e.y = swept_hull_.front().y; e.z = 0.02;
+        m.points.push_back(s);
+        m.points.push_back(e);
+      }
+      pub_swept_marker_->publish(m);
+
+      visualization_msgs::msg::Marker m1;
+      m1.header = m.header;
+      m1.header.frame_id = target_frame_;
+      m1.ns = "swept_volume_1";
+      m1.id = 1;
+      m1.type = visualization_msgs::msg::Marker::LINE_LIST;
+      m1.action = visualization_msgs::msg::Marker::ADD;
+      m1.pose.orientation.w = 1.0;
+      m1.scale.x = m.scale.x;
+      m1.color.r = 1.0; m1.color.g = 0.65; m1.color.b = 0.0; m1.color.a = 1.0;
+      m1.frame_locked = true;
+      if (hull1.size() >= 2) {
+        for (size_t i = 0; i + 1 < hull1.size(); ++i) {
+          geometry_msgs::msg::Point s, e;
+          s.x = hull1[i].x; s.y = hull1[i].y; s.z = 0.02;
+          e.x = hull1[i+1].x; e.y = hull1[i+1].y; e.z = 0.02;
+          m1.points.push_back(s);
+          m1.points.push_back(e);
+        }
+        geometry_msgs::msg::Point s, e;
+        s.x = hull1.back().x; s.y = hull1.back().y; s.z = 0.02;
+        e.x = hull1.front().x; e.y = hull1.front().y; e.z = 0.02;
+        m1.points.push_back(s);
+        m1.points.push_back(e);
+      }
+      pub_swept_marker_->publish(m1);
+
+      visualization_msgs::msg::Marker m2;
+      m2.header = m.header;
+      m2.header.frame_id = target_frame_;
+      m2.ns = "swept_volume_2";
+      m2.id = 2;
+      m2.type = visualization_msgs::msg::Marker::LINE_LIST;
+      m2.action = visualization_msgs::msg::Marker::ADD;
+      m2.pose.orientation.w = 1.0;
+      m2.scale.x = m.scale.x;
+      m2.color.r = 1.0; m2.color.g = 0.0; m2.color.b = 0.0; m2.color.a = 1.0;
+      m2.frame_locked = true;
+      if (hull2.size() >= 2) {
+        for (size_t i = 0; i + 1 < hull2.size(); ++i) {
+          geometry_msgs::msg::Point s, e;
+          s.x = hull2[i].x; s.y = hull2[i].y; s.z = 0.02;
+          e.x = hull2[i+1].x; e.y = hull2[i+1].y; e.z = 0.02;
+          m2.points.push_back(s);
+          m2.points.push_back(e);
+        }
+        geometry_msgs::msg::Point s, e;
+        s.x = hull2.back().x; s.y = hull2.back().y; s.z = 0.02;
+        e.x = hull2.front().x; e.y = hull2.front().y; e.z = 0.02;
+        m2.points.push_back(s);
+        m2.points.push_back(e);
+      }
+      pub_swept_marker_->publish(m2);
+    }
+
+
+    geometry_msgs::msg::PolygonStamped coll1;
+    coll1.header = last_footprint_.value().header;
+    coll1.header.frame_id = target_frame_;
+    if (collided1) {
+      for (const auto &v : coll_poly1) { geometry_msgs::msg::Point32 p; p.x = (float)v.x; p.y = (float)v.y; coll1.polygon.points.push_back(p); }
+    }
+    // pub_level1_region_->publish(coll1);
+
+    geometry_msgs::msg::PolygonStamped coll2;
+    coll2.header = last_footprint_.value().header;
+    coll2.header.frame_id = target_frame_;
+    if (collided2) {
+      for (const auto &v : coll_poly2) { geometry_msgs::msg::Point32 p; p.x = (float)v.x; p.y = (float)v.y; coll2.polygon.points.push_back(p); }
+    }
+    // pub_level2_region_->publish(coll2);
+
+    int level = 0;
+    if (collided1) 
+      level = 1; 
+    else if (collided2) 
+      level = 2;
+
+    std_msgs::msg::Int16 lvl; 
+    lvl.data = level; 
+    pub_collision_level_->publish(lvl);
 
     if (publish_collision_polygon_ && level >= 0) {
-      const auto &chosen = (level == 2 ? coll_poly2 : (level == 1 ? coll_poly1 : coll_poly0));
+      const auto &chosen = (level == 2 ? coll_poly2 : coll_poly1);
       geometry_msgs::msg::PolygonStamped coll;
       coll.header = last_footprint_.value().header;
       coll.header.frame_id = target_frame_;
-      for (const auto &v : chosen) { geometry_msgs::msg::Point32 p; p.x = (float)v.x; p.y = (float)v.y; coll.polygon.points.push_back(p); }
+      for (const auto &v : chosen) { 
+        geometry_msgs::msg::Point32 p; 
+        p.x = (float)v.x; 
+        p.y = (float)v.y; 
+        coll.polygon.points.push_back(p); 
+      }
       pub_collision_->publish(coll);
       // RCLCPP_INFO(get_logger(), "collision region published: %zu pts", coll.polygon.points.size());
     } else {
@@ -315,33 +494,33 @@ private:
     std::chrono::duration<double, std::milli> dt = t1 - t0;
     std_msgs::msg::Float64 ms;
     ms.data = dt.count();
-    pub_time_->publish(ms);
     RCLCPP_INFO(get_logger(), "collision tick compute: %.2f ms; collision level: %d", ms.data, level);
   }
 
   std::string footprint_topic_;
   std::string clusters_topic_;
-  std::string inflated_topic_;
-  std::string inflated_topic_1_;
   std::string target_frame_;
-  bool use_tf_;
   double inflation_factor_1, inflation_factor_2;
   rclcpp::Subscription<geometry_msgs::msg::PolygonStamped>::SharedPtr sub_footprint_;
   rclcpp::Subscription<costmap_converter_msgs::msg::ObstacleArrayMsg>::SharedPtr sub_clusters_;
-  rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr pub_inflated1_;
-  rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr pub_inflated2_;
   rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr pub_collision_;
-  rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pub_time_;
-  rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr pub_collision_level_;
-  double footprint_line_width_;
-  double collision_line_width_factor_;
+  rclcpp::Publisher<std_msgs::msg::Int16>::SharedPtr pub_collision_level_; // TODO: Level; Positionc
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_swept_marker_;
+  // rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr pub_level1_region_;
+  // rclcpp::Publisher<geometry_msgs::msg::PolygonStamped>::SharedPtr pub_level2_region_;
   bool publish_collision_polygon_;
-  bool publish_collision_marker_;
+  double predict_horizon_;
+  int num_steps_;
+  double v_ = 0.0, omega_ = 0.0;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel_;
+  std::vector<Vec2> swept_hull_;
+  bool swept_hull_computed_ = false;
+  bool publish_swept_marker_;
+  double swept_line_width_;
+  std::string collision_strategy_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::optional<geometry_msgs::msg::PolygonStamped> last_footprint_;
   std::optional<costmap_converter_msgs::msg::ObstacleArrayMsg> last_clusters_;
-  tf2_ros::Buffer tf_buffer_;
-  tf2_ros::TransformListener tf_listener_;
 };
 
 int main(int argc, char ** argv) {

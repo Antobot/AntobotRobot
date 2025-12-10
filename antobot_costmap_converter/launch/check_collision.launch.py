@@ -32,11 +32,9 @@ def generate_launch_description():
             {'clusters_topic': '/costmap_converter/obstacles'},
             {'footprint_topic': '/costmap/published_footprint'},
             {'target_frame': 'base_link'},
-            {'use_tf': False},
             {'footprint_line_width': 0.06},
-            {'collision_line_width_factor': 2.0},
             {'publish_collision_polygon': True},
-            {'publish_collision_marker': False}
+            {'collision_strategy': "swept"}
         ]
     )
 
