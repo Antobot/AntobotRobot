@@ -47,8 +47,6 @@ class AntobotSafety : public rclcpp::Node
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
 
-        timer_ = this->create_wall_timer(40ms, std::bind(&AntobotSafety::update, this));
-
         // Initialising uss_dist_filt with fake data
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i=0; i<8; i++)
@@ -56,6 +54,29 @@ class AntobotSafety : public rclcpp::Node
             uss_dist_filt_init.data.push_back(200);
         }
         uss_dist_filt = uss_dist_filt_init;
+        
+
+        this->declare_parameter<double>("frequency", 30.0);
+        frequency_ = this->get_parameter("frequency").as_double();
+
+        this->declare_parameter<bool>("uss_enable", false);
+        uss_enable = this->get_parameter("uss_enable").as_bool();
+
+        this->declare_parameter<bool>("auto_release", false);
+        auto_release = this->get_parameter("auto_release").as_bool();
+
+        this->declare_parameter<bool>("uss_front_enable", false);
+        uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
+
+        this->declare_parameter<bool>("uss_back_enable", false);
+        uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
+
+        std::chrono::duration<double> period_sec(1.0 / frequency_);
+        timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
+
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: frequency_: " << frequency_);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: uss_enable: " << uss_enable);
+
     }
 
   private:
@@ -134,6 +155,12 @@ class AntobotSafety : public rclcpp::Node
 
     bool safe_operation;
 
+    double frequency_;
+    bool uss_enable = false;
+    bool auto_release = false;
+    bool uss_front_enable = true;
+    bool uss_back_enable = true;
+
     /*
     float robot_lin_vel_cmd;
     float robot_ang_vel_cmd;
@@ -151,9 +178,8 @@ class AntobotSafety : public rclcpp::Node
     {
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
         */
-
         // Check USS recommendation
-        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8)   // Only consider USS for specific defined safety levels
+        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && uss_enable)   // Only consider USS for specific defined safety levels
         {
             if (ussDistSafetyCheck() && !force_stop && !force_stop_release) //Safety check not pass, not force stopped, no release // UNCOMMENT TO ENABLE USS!!
             {
@@ -202,8 +228,8 @@ class AntobotSafety : public rclcpp::Node
         // Check time of last received command - if none received in the last ~1s, the robot should stop
         //if ((float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC > 0.05)      // This should NOT use ROS time, as if ROS stops, it should still stop the robot
         auto duration = std::chrono::steady_clock::now() - time_lastRcvdCmdVel;
-        //auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
+        // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
         if (duration > std::chrono::milliseconds(50))
         {   
             //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped2" << (float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC);
@@ -493,7 +519,7 @@ class AntobotSafety : public rclcpp::Node
         /* Automatically releases the robot from its force stopped state if the previously 
         detected object is no longer being detected */
         
-        if (force_stop)
+        if (force_stop && auto_release)
         {
             // First, check how the robot is moving
             int cmd_vel_type = getCmdVelType();
@@ -631,10 +657,23 @@ class AntobotSafety : public rclcpp::Node
 
         
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
-        uint16_t uss_dist_ar[8];
+        uint16_t uss_dist_ar[8] = {0};
         uint16_t uss_dist_filt_i;
-        for (int i=0; i<8; i++)
-            uss_dist_ar[i] = msg.data[i];
+        if (uss_back_enable && uss_front_enable) {
+            int16_t tmp[8] = {0, msg.data[1], 0, 0, msg.data[4], 0, 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }else if (uss_front_enable) {
+            uint16_t tmp[8] = {0, msg.data[1], 0, 0, 0, 0, 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }else if (uss_back_enable) {
+            int16_t tmp[8] = {0, 0, 0, 0, 0, msg.data[5], 0, 0};
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }
+        // else {
+        //     for (int i=0; i<8; i++)
+        //         uss_dist_ar[i] = msg.data[i];
+        // }
+
 
         // Define the filtered USS dist class variable 
         //uss_dist_filt = ussDistFilt(uss_dist_ar);
