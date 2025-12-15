@@ -657,22 +657,21 @@ class AntobotSafety : public rclcpp::Node
 
         
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
-        uint16_t uss_dist_ar[8] = {0};
+        uint16_t uss_dist_ar[8] = {200};
         uint16_t uss_dist_filt_i;
         if (uss_back_enable && uss_front_enable) {
-            int16_t tmp[8] = {0, msg.data[1], 0, 0, msg.data[4], 0, 0, 0};
+            uint16_t tmp[8] = {200, msg.data[1], 200, 200, 200, msg.data[4], 200, 200};
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
         }else if (uss_front_enable) {
-            uint16_t tmp[8] = {0, msg.data[1], 0, 0, 0, 0, 0, 0};
+            uint16_t tmp[8] = {200, msg.data[1], 200, 200, 200, 200, 200, 200};
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
         }else if (uss_back_enable) {
-            int16_t tmp[8] = {0, 0, 0, 0, 0, msg.data[5], 0, 0};
+            uint16_t tmp[8] = {200, 200, 200, 200, 200, msg.data[5], 200, 200};
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
+        }else {
+            for (int i=0; i<8; i++)
+                uss_dist_ar[i] = msg.data[i];
         }
-        // else {
-        //     for (int i=0; i<8; i++)
-        //         uss_dist_ar[i] = msg.data[i];
-        // }
 
 
         // Define the filtered USS dist class variable 
