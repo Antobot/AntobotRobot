@@ -98,16 +98,16 @@ class AntobotControl : public rclcpp::Node
         velocity_smoother();
 
         // Check for velocity timeout
-        double time_since_cmd = (this->now() - last_command_time_).seconds();
-        if (time_since_cmd > velocity_timeout_)
-        {
-            if (robot_lin_vel_cmd != 0.0 || robot_ang_vel_cmd != 0.0)
-            {
-                RCLCPP_WARN(this->get_logger(), "No cmd_vel received for %.3f s, stop robot.", time_since_cmd);
-            }
-            robot_lin_vel_cmd = 0.0;
-            robot_ang_vel_cmd = 0.0;
-        }
+        // double time_since_cmd = (this->now() - last_command_time_).seconds();
+        // if (time_since_cmd > velocity_timeout_)
+        // {
+        //     if (robot_lin_vel_cmd != 0.0 || robot_ang_vel_cmd != 0.0)
+        //     {
+        //         RCLCPP_WARN(this->get_logger(), "No cmd_vel received for %.3f s, stop robot.", time_since_cmd);
+        //     }
+        //     robot_lin_vel_cmd = 0.0;
+        //     robot_ang_vel_cmd = 0.0;
+        // }
 
         auto wheel_vel_cmd_msg = antobot_platform_msgs::msg::Float32Array();
         get_motor_commands(robot_lin_vel_cmd, robot_ang_vel_cmd);
