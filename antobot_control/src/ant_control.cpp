@@ -26,7 +26,7 @@ class AntobotControl : public rclcpp::Node
     AntobotControl() : Node("antobot_control"), count_(0)
     {   
 
-        this->declare_parameter<double>("wheel_base", 0.6);
+        this->declare_parameter<double>("track_width", 0.6);
         this->declare_parameter<double>("wheel_radius", 0.165);
         this->declare_parameter<std::vector<double>>("max_velocity", std::vector<double>{0.5, 0.5});
         this->declare_parameter<std::vector<double>>("min_velocity", std::vector<double>{-0.5, -0.5});
@@ -35,7 +35,7 @@ class AntobotControl : public rclcpp::Node
         this->declare_parameter<double>("frequency", 30.0);
         this->declare_parameter<double>("velocity_timeout", 0.15);
 
-        wheel_base_  = this->get_parameter("wheel_base").as_double();
+        track_width_  = this->get_parameter("track_width").as_double();
         wheel_radius_ = this->get_parameter("wheel_radius").as_double();
         max_velocities_ = this->get_parameter("max_velocity").as_double_array();
         min_velocities_ = this->get_parameter("min_velocity").as_double_array();
@@ -77,7 +77,7 @@ class AntobotControl : public rclcpp::Node
     float robot_ang_vel_cmd;
     float wheel_vels[4];
     std::vector<float> wheel_vel_cmd;
-    double wheel_base_;                       // The distance between the left and right wheels, in meters
+    double track_width_;                       // The distance between the left and right wheels, in meters
     double wheel_radius_;
     nav_msgs::msg::Odometry wheel_odom_msg;
     float old_angle;
@@ -257,8 +257,8 @@ class AntobotControl : public rclcpp::Node
 
         wheel_vel_cmd = std::vector<float>();
 
-        wheel_ang_vel_l = (lin_vel - ang_vel * wheel_base_/2)/wheel_radius_;
-        wheel_ang_vel_r = (lin_vel + ang_vel * wheel_base_/2)/wheel_radius_;
+        wheel_ang_vel_l = (lin_vel - ang_vel * track_width_/2)/wheel_radius_;
+        wheel_ang_vel_r = (lin_vel + ang_vel * track_width_/2)/wheel_radius_;
 
         // TODO: Unit conversions (?)
 
@@ -325,8 +325,8 @@ class AntobotControl : public rclcpp::Node
         // wheel_ang_vel_l + wheel_ang_vel_r = 2 * lin_vel / wheel_radius_                  // (from equations in get_motor_commands)
         linear_twist.x = wheel_radius_ * (wheel_ang_vel_l + wheel_ang_vel_r) / 2;
 
-        // wheel_ang_vel_l - wheel_ang_vel_r = 2 * ang_vel * wheel_base_/2/wheel_radius_     // (from equations in get_motor_commands)
-        angular_twist.z = (wheel_ang_vel_l - wheel_ang_vel_r) * wheel_radius_ / wheel_base_;
+        // wheel_ang_vel_l - wheel_ang_vel_r = 2 * ang_vel * track_width_/2/wheel_radius_     // (from equations in get_motor_commands)
+        angular_twist.z = (wheel_ang_vel_l - wheel_ang_vel_r) * wheel_radius_ / track_width_;
 
         twist_odom.linear = linear_twist;
         twist_odom.angular = angular_twist;
