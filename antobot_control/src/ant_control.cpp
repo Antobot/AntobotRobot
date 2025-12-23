@@ -337,26 +337,80 @@ class AntobotControl : public rclcpp::Node
 
     geometry_msgs::msg::Pose calc_odom(float lin_vel, float ang_vel)
     {
+        static bool inited = false;
+        static rclcpp::Time last_time;
+
         auto pose_odom = geometry_msgs::msg::Pose();
         auto new_pos = geometry_msgs::msg::Point();
         auto new_quat = geometry_msgs::msg::Quaternion();
 
-        float elapsed_time = 0.04;
+        const auto now = this->now();
+        if (!inited) {
+            last_time = now;
+            inited = true;
 
-        // Calculate new angle
-        float new_angle = old_angle + elapsed_time * ang_vel;
-        old_angle = new_angle;
-        new_quat.x = 0;      // Assume 0 because both roll and pitch are 0
-        new_quat.y = 0;      // Assume 0 because both roll and pitch are 0
-        new_quat.z = sin(new_angle/2);
-        new_quat.w = cos(new_angle/2);
+            new_quat.x = 0;
+            new_quat.y = 0;
+            new_quat.z = std::sin(old_angle / 2.0f);
+            new_quat.w = std::cos(old_angle / 2.0f);
+            pose_odom.orientation = new_quat;
+
+            pose_odom.position = old_pos;
+            return pose_odom;
+        }
+
+        double dt = (now - last_time).seconds();
+        if (dt <= 0.0) {
+            dt = 1.0 / std::max(1.0, frequency_);
+        }
+        last_time = now;
+
+        if (dt < 1e-6) {
+            dt = 0.0;
+        }
+
+        const double x_old = old_pos.x;
+        const double y_old = old_pos.y;
+        const double yaw_old = old_angle;
+
+        const double v = static_cast<double>(lin_vel);
+        const double w = static_cast<double>(ang_vel);
+
+        double x_new = x_old;
+        double y_new = y_old;
+        double yaw_new = yaw_old;
+
+        if (std::fabs(w) < 1e-6) {
+            x_new = x_old + v * dt * std::cos(yaw_old);
+            y_new = y_old + v * dt * std::sin(yaw_old);
+            yaw_new = yaw_old + w * dt;
+        } else {
+            const double dtheta = w * dt;
+            const double R = v / w;
+
+            const double dx_local = R * std::sin(dtheta);
+            const double dy_local = R * (1.0 - std::cos(dtheta));
+
+            x_new = x_old + dx_local * std::cos(yaw_old) - dy_local * std::sin(yaw_old);
+            y_new = y_old + dx_local * std::sin(yaw_old) + dy_local * std::cos(yaw_old);
+            yaw_new = yaw_old + dtheta;
+        }
+
+        while (yaw_new > M_PI) yaw_new -= 2.0 * M_PI;
+        while (yaw_new < -M_PI) yaw_new += 2.0 * M_PI;
+
+        old_pos.x = x_new;
+        old_pos.y = y_new;
+        old_angle = static_cast<float>(yaw_new);
+
+        new_quat.x = 0;
+        new_quat.y = 0;
+        new_quat.z = std::sin(old_angle/2);
+        new_quat.w = std::cos(old_angle/2);
         pose_odom.orientation = new_quat;
 
-        // Calculate new position
-        new_pos.x = old_pos.x + lin_vel * elapsed_time * cos(new_angle);
-        new_pos.y = old_pos.y + lin_vel * elapsed_time * sin(new_angle);
+        new_pos = old_pos;
         pose_odom.position = new_pos;
-        old_pos = new_pos;
 
         return pose_odom;
     }
