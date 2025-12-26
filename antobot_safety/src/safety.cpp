@@ -712,8 +712,6 @@ class AntobotSafety : public rclcpp::Node
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
-        } else {
-            memcpy(uss_dist_ar, uss_avg, sizeof(uss_avg));
         }
 
         // -----------------------------
