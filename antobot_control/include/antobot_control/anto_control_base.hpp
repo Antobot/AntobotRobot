@@ -11,8 +11,9 @@ namespace antobot_control
 // Twist command (linear + angular velocity)
 struct RobotCommand
 {
-    double linear{0.0};   // m/s
-    double angular{0.0};  // rad/s
+    double linear{0.0};    // vx
+    double linear_y{0.0};  // vy (4ws model only for now)
+    double angular{0.0};   // rad/s
 };
 
 // Wheel-level command (target wheel or track speeds)
@@ -71,9 +72,9 @@ struct ControlParams
     double min_angular{-0.5};
 
     // Robot-level acceleration / deceleration limits
-    double max_linear_accel{0.2};    // m/s^2
-    double max_linear_decel{-3.0};    // m/s^2 (positive, sign handled in code)
-    double max_angular_accel{0.5};   // rad/s^2
+    double max_linear_accel{0.2};     // m/s^2
+    double max_linear_decel{-3.0};    // m/s^2 
+    double max_angular_accel{0.5};    // rad/s^2
     double max_angular_decel{-3.0};   // rad/s^2
 
     // Feature switches
@@ -129,6 +130,27 @@ public:
         state_.raw_cmd.linear  = msg_linear;
         state_.raw_cmd.angular = msg_angular;
 
+
+        state_.raw_cmd.linear_y = 0.0;
+
+        state_.status.last_robot_cmd_time_sec = now_time_sec;
+        state_.status.has_robot_cmd = true;
+        state_.status.timed_out = false;
+    }
+
+    // =====================================================================
+    // robot_cmd_vel_callback_2d  (used by 4ws model only)
+    // =====================================================================
+    // Update robot-level command and command timestamp. (add vy)
+    void robot_cmd_vel_callback_2d(double msg_linear_x,
+                                   double msg_linear_y,
+                                   double msg_angular,
+                                   double now_time_sec)
+    {
+        state_.raw_cmd.linear   = msg_linear_x;  // vx
+        state_.raw_cmd.linear_y = msg_linear_y;  // vy
+        state_.raw_cmd.angular  = msg_angular;   // ω
+
         state_.status.last_robot_cmd_time_sec = now_time_sec;
         state_.status.has_robot_cmd = true;
         state_.status.timed_out = false;
@@ -171,22 +193,25 @@ public:
             double dt_cmd = now_time_sec - state_.status.last_robot_cmd_time_sec;
             if (!state_.status.has_robot_cmd || dt_cmd > p.velocity_timeout_sec) {
                 // Stop robot on timeout
-                state_.smoothed_cmd.linear  = 0.0;
-                state_.smoothed_cmd.angular = 0.0;
-                state_.clipped_cmd          = state_.smoothed_cmd;
-                state_.status.timed_out     = true;
+                state_.smoothed_cmd.linear   = 0.0;
+                state_.smoothed_cmd.linear_y = 0.0;
+                state_.smoothed_cmd.angular  = 0.0;
+                state_.clipped_cmd           = state_.smoothed_cmd;
+                state_.status.timed_out      = true;
                 return;
             }
         }
 
-
+        // Robot-level velocity limits 
         state_.clipped_cmd.linear = std::clamp(
             state_.raw_cmd.linear, p.min_linear, p.max_linear);
+        state_.clipped_cmd.linear_y = std::clamp(
+            state_.raw_cmd.linear_y, p.min_linear, p.max_linear);
         state_.clipped_cmd.angular = std::clamp(
             state_.raw_cmd.angular, p.min_angular, p.max_angular);
 
-
         if (!p.enable_smoothing) {
+
             state_.smoothed_cmd = state_.clipped_cmd;
             state_.status.timed_out = false;
             return;
@@ -203,10 +228,12 @@ public:
             double v_component_max;
             double v_component_min;
 
+
             if (std::fabs(v_cmd) >= std::fabs(v_curr) && v_curr * v_cmd >= 0.0) {
                 v_component_max =  accel / freq;
                 v_component_min = -accel / freq;
             } else {
+
                 v_component_max = -decel / freq;
                 v_component_min =  decel / freq;
             }
@@ -215,21 +242,30 @@ public:
             return v_curr + dv_clamped;
         };
 
-        double v_curr = state_.smoothed_cmd.linear;
-        double w_curr = state_.smoothed_cmd.angular;
 
-        double v_cmd  = state_.clipped_cmd.linear;
-        double w_cmd  = state_.clipped_cmd.angular;
+        double vx_curr = state_.smoothed_cmd.linear;
+        double vy_curr = state_.smoothed_cmd.linear_y;
+        double w_curr  = state_.smoothed_cmd.angular;
 
-        double new_linear  = apply_constraints(v_curr, v_cmd,
-                                            p.max_linear_accel,
-                                            p.max_linear_decel);
-        double new_angular = apply_constraints(w_curr, w_cmd,
-                                            p.max_angular_accel,
-                                            p.max_angular_decel);
 
-        state_.smoothed_cmd.linear  = new_linear;
-        state_.smoothed_cmd.angular = new_angular;
+        double vx_cmd  = state_.clipped_cmd.linear;
+        double vy_cmd  = state_.clipped_cmd.linear_y;
+        double w_cmd   = state_.clipped_cmd.angular;
+
+
+        double new_linear_x = apply_constraints(vx_curr, vx_cmd,
+                                                p.max_linear_accel,
+                                                p.max_linear_decel);
+        double new_linear_y = apply_constraints(vy_curr, vy_cmd,
+                                                p.max_linear_accel,
+                                                p.max_linear_decel);
+        double new_angular  = apply_constraints(w_curr,  w_cmd,
+                                                p.max_angular_accel,
+                                                p.max_angular_decel);
+
+        state_.smoothed_cmd.linear   = new_linear_x;
+        state_.smoothed_cmd.linear_y = new_linear_y;
+        state_.smoothed_cmd.angular  = new_angular;
         state_.status.timed_out = false;
     }
     
@@ -289,7 +325,6 @@ public:
             odom.last_update_time_sec = now_time_sec;
             return;
         }
-
 
         const double x_old = odom.x;
         const double y_old = odom.y;

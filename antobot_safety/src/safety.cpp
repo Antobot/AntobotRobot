@@ -656,33 +656,75 @@ class AntobotSafety : public rclcpp::Node
         //  Outputs: publishes filtered USS data to /antobot_safety/uss_dist ROS topic
 
         
+
+
+        static constexpr int USS_NUM  = 8;
+        static constexpr int WIN_SIZE = 10;
+
+        static uint16_t uss_buf[WIN_SIZE][USS_NUM] = {0};
+        static uint32_t uss_sum[USS_NUM] = {0};
+        static int buf_idx = 0;
+        static int buf_cnt = 0;
+
+        // 移除最旧帧
+        if (buf_cnt == WIN_SIZE) {
+            for (int i = 0; i < USS_NUM; i++) {
+                uss_sum[i] -= uss_buf[buf_idx][i];
+            }
+        } else {
+            buf_cnt++;
+        }
+
+        // 写入新帧
+        for (int i = 0; i < USS_NUM; i++) {
+            uss_buf[buf_idx][i] = msg.data[i];
+            uss_sum[i] += msg.data[i];
+        }
+
+        buf_idx = (buf_idx + 1) % WIN_SIZE;
+
+        uint16_t uss_avg[USS_NUM];
+        for (int i = 0; i < USS_NUM; i++) {
+            uss_avg[i] = static_cast<uint16_t>(uss_sum[i] / buf_cnt);
+        }
+
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
-        uint16_t uss_dist_ar[8] = {0};
-        uint16_t uss_dist_filt_i;
+        uint16_t uss_dist_ar[USS_NUM] = {200};
+
         if (uss_back_enable && uss_front_enable) {
-            int16_t tmp[8] = {0, msg.data[1], 0, 0, 0, msg.data[5], 0, 0};
+            uint16_t tmp[USS_NUM] = {
+                200, uss_avg[1], 200, 200,
+                200, uss_avg[4], 200, 200
+            };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
-        }else if (uss_front_enable) {
-            uint16_t tmp[8] = {0, msg.data[1], 0, 0, 0, 0, 0, 0};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
-        }else if (uss_back_enable) {
-            int16_t tmp[8] = {0, 0, 0, 0, 0, msg.data[5], 0, 0};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
-        }
-        // else {
-        //     for (int i=0; i<8; i++)
-        //         uss_dist_ar[i] = msg.data[i];
-        // }
 
+        } else if (uss_front_enable) {
+            uint16_t tmp[USS_NUM] = {
+                200, uss_avg[1], 200, 200,
+                200, 200, 200, 200
+            };
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
-        // Define the filtered USS dist class variable 
-        //uss_dist_filt = ussDistFilt(uss_dist_ar);
-        for (int i=0; i<8; i++)
-        {
-            uss_dist_filt_i = uss_dist_ar[i];
-            uss_dist_filt_all.data.push_back(uss_dist_filt_i);
+        } else if (uss_back_enable) {
+            uint16_t tmp[USS_NUM] = {
+                200, 200, 200, 200,
+                200, uss_avg[4], 200, 200
+            };
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+
         }
-        uss_dist_filt=uss_dist_filt_all;
+
+        // -----------------------------
+        // Publish
+        // -----------------------------
+        uss_dist_filt_all.data.clear();
+        uss_dist_filt_all.data.reserve(USS_NUM);
+
+        for (int i = 0; i < USS_NUM; i++) {
+            uss_dist_filt_all.data.push_back(uss_dist_ar[i]);
+        }
+
+        uss_dist_filt = uss_dist_filt_all;
         uss_dist_filt_pub_->publish(uss_dist_filt);
         
     }
