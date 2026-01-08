@@ -10,9 +10,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(antobot_platform_msgs REQUIRED)
 
 add_executable(safety_node src/safety.cpp)
-ament_target_dependencies(safety_node rclcpp std_msgs geometry_msgs)
+ament_target_dependencies(safety_node rclcpp std_msgs geometry_msgs antobot_platform_msgs)
 # target_include_directories(antobot_safety PUBLIC include include/antobot_safety)
 
 install(

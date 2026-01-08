@@ -1,3 +1,4 @@
+#include <iostream>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -11,6 +12,7 @@
 #include "std_msgs/msg/int16_multi_array.hpp"
 #include "std_msgs/msg/int8.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
@@ -25,7 +27,7 @@ class AntobotSafety : public rclcpp::Node
 
         sub_safety_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/safety/cmd_vel", 10,
             std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
-        sub_uss_dist_ = this->create_subscription<std_msgs::msg::Int16MultiArray>("/antobridge/uss_dist", 10, 
+        sub_uss_dist_ = this->create_subscription<antobot_platform_msgs::msg::UInt16Array>("/antobridge/uss_dist", 10,
             std::bind(&AntobotSafety::ussDistCallback, this, _1));
         sub_release_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/force_stop_release", 10, 
             std::bind(&AntobotSafety::releaseCallback, this, _1));
@@ -35,7 +37,7 @@ class AntobotSafety : public rclcpp::Node
             std::bind(&AntobotSafety::bumpBackCallback, this, _1));
 
         cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10);
-        uss_dist_filt_pub_ = this->create_publisher<std_msgs::msg::Int16MultiArray>("/antobot/safety/uss_dist", 10);
+        uss_dist_filt_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/antobot/safety/uss_dist", 10);
         force_stop_type_pub_ = this->create_publisher<std_msgs::msg::Int8>("/antobot/safety/force_stop_type", 10);       // 0 - none (or release); 
                                                                                                                         // 1-8: USS
                                                                                                                             // 1 - front left; 2 - front; 3 - front right; 4 - right; 
@@ -45,15 +47,36 @@ class AntobotSafety : public rclcpp::Node
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
 
-        timer_ = this->create_wall_timer(40ms, std::bind(&AntobotSafety::timer_callback, this));
-
         // Initialising uss_dist_filt with fake data
-        std_msgs::msg::Int16MultiArray uss_dist_filt_init;
+        antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i=0; i<8; i++)
         {
             uss_dist_filt_init.data.push_back(200);
         }
         uss_dist_filt = uss_dist_filt_init;
+        
+
+        this->declare_parameter<double>("frequency", 30.0);
+        frequency_ = this->get_parameter("frequency").as_double();
+
+        this->declare_parameter<bool>("uss_enable", false);
+        uss_enable = this->get_parameter("uss_enable").as_bool();
+
+        this->declare_parameter<bool>("auto_release", false);
+        auto_release = this->get_parameter("auto_release").as_bool();
+
+        this->declare_parameter<bool>("uss_front_enable", false);
+        uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
+
+        this->declare_parameter<bool>("uss_back_enable", false);
+        uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
+
+        std::chrono::duration<double> period_sec(1.0 / frequency_);
+        timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
+
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: frequency_: " << frequency_);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: uss_enable: " << uss_enable);
+
     }
 
   private:
@@ -63,14 +86,14 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::TimerBase::SharedPtr timer_;
     
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
-    rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr uss_dist_filt_pub_;
+    rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr uss_dist_filt_pub_;
     rclcpp::Publisher<std_msgs::msg::Int8>::SharedPtr force_stop_type_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr safe_operation_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
     
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_safety_cmd_vel_;
-    rclcpp::Subscription<std_msgs::msg::Int16MultiArray>::SharedPtr sub_uss_dist_;
+    rclcpp::Subscription<antobot_platform_msgs::msg::UInt16Array>::SharedPtr sub_uss_dist_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_release_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
@@ -79,7 +102,7 @@ class AntobotSafety : public rclcpp::Node
     size_t count_;
 
     std::vector<std::vector<int>> uss_dist_windows;
-    std::vector<bool> light_cmd_ar;
+    std::vector<bool> light_cmd_arr = {false, false};
 
     float time_to_collision = 100;
     float lin_vel_thresh = 0.11;
@@ -101,6 +124,13 @@ class AntobotSafety : public rclcpp::Node
     clock_t t_lastStopTriggerWarning;
     clock_t t_lastSafetyStatusSent;
 
+    std::chrono::time_point<std::chrono::steady_clock> time_lastRcvdCmdVel = std::chrono::steady_clock::now();
+    std::chrono::time_point<std::chrono::steady_clock> time_lastStopTriggerWarning = std::chrono::steady_clock::now();
+    std::chrono::time_point<std::chrono::steady_clock> time_lastSafetyStatusSent = std::chrono::steady_clock::now();
+
+    std::chrono::time_point<std::chrono::steady_clock> time_force_stop = std::chrono::steady_clock::now();
+    std::chrono::time_point<std::chrono::steady_clock> time_safety_light = std::chrono::steady_clock::now();
+
     bool force_stop;
     clock_t t_force_stop;       // Can be used to release the force stop, if desired
     float fs_release_thresh = 8.0;
@@ -112,16 +142,24 @@ class AntobotSafety : public rclcpp::Node
     bool movement_scale = false;
     bool movement_limit = true;
 
-    int safety_light_pattern;
-    float safety_light_freq;
+    int safety_light_pattern = 1;
+    float safety_light_freq = 2.0;
     clock_t t_safety_light;     // Can be used to make the lights blink, if desired
 
-    std_msgs::msg::Int16MultiArray uss_dist_filt;
+
+    antobot_platform_msgs::msg::UInt16Array uss_dist_filt;
+
 
     std::string robot_role;
     int safety_level;
 
     bool safe_operation;
+
+    double frequency_;
+    bool uss_enable = false;
+    bool auto_release = false;
+    bool uss_front_enable = true;
+    bool uss_back_enable = true;
 
     /*
     float robot_lin_vel_cmd;
@@ -136,19 +174,12 @@ class AntobotSafety : public rclcpp::Node
     
 
     // Functions
-
-    void timer_callback()
-    {
-        update();
-    }
-
     void update()
     {
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
         */
-
         // Check USS recommendation
-        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8)   // Only consider USS for specific defined safety levels
+        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && uss_enable)   // Only consider USS for specific defined safety levels
         {
             if (ussDistSafetyCheck() && !force_stop && !force_stop_release) //Safety check not pass, not force stopped, no release // UNCOMMENT TO ENABLE USS!!
             {
@@ -165,7 +196,10 @@ class AntobotSafety : public rclcpp::Node
                     {
                         force_stop = true;
                         t_force_stop = clock();         // Sets when the robot force stopped
+                        time_force_stop = std::chrono::steady_clock::now();
+                        time_safety_light = std::chrono::steady_clock::now();
                         t_safety_light = clock();
+                        
                         fs_warn_msg_sent = false;
                         fs_err_msg_sent = false;
                     }
@@ -180,7 +214,9 @@ class AntobotSafety : public rclcpp::Node
                     // If force stop is triggered while moving straight, force stop the robot ---what situation will enter this condition?July 4th
                     force_stop = true;
                     t_force_stop = clock();         // Sets when the robot force stopped
+                    time_force_stop = std::chrono::steady_clock::now();
                     t_safety_light = clock();
+                    time_safety_light = std::chrono::steady_clock::now();
                 }
             }
         }
@@ -188,15 +224,27 @@ class AntobotSafety : public rclcpp::Node
 
         // TODO: Check costmap recommendation - integrate with costmap-based obstacle detection?
 
+
         // Check time of last received command - if none received in the last ~1s, the robot should stop
-        if ((float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC > 0.05)      // This should NOT use ROS time, as if ROS stops, it should still stop the robot
+        //if ((float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC > 0.05)      // This should NOT use ROS time, as if ROS stops, it should still stop the robot
+        auto duration = std::chrono::steady_clock::now() - time_lastRcvdCmdVel;
+        // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
+        if (duration > std::chrono::milliseconds(50))
         {   
+            //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped2" << (float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC);
             cmd_vel_msg.linear.x = 0;
             cmd_vel_msg.angular.z = 0;
-            if ((float)(clock() - t_lastStopTriggerWarning)/CLOCKS_PER_SEC > 10.0)
+            //if ((float)(clock() - t_lastStopTriggerWarning)/CLOCKS_PER_SEC > 10.0)
+            
+            auto duration = std::chrono::steady_clock::now() - time_lastStopTriggerWarning;
+            //auto duration_s = std::chrono::duration_cast<std::chrono::seconds>(duration);
+            if (duration > std::chrono::seconds(10))
             {
-                RCLCPP_INFO(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received");
-                t_lastStopTriggerWarning = clock();
+                RCLCPP_INFO(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (10s)");
+                //t_lastStopTriggerWarning = clock();
+                time_lastStopTriggerWarning = std::chrono::steady_clock::now();
+                safe_operation = false;
             }
         }
 
@@ -227,8 +275,13 @@ class AntobotSafety : public rclcpp::Node
 
         cmd_vel_pub_->publish(cmd_vel_msg);
 
-        if (30.0*(clock() - t_lastSafetyStatusSent)/CLOCKS_PER_SEC > 1.0)   // Send status every 1 second
+        //if (30.0*(clock() - t_lastSafetyStatusSent)/CLOCKS_PER_SEC > 1.0)   // Send status every 1 second
+
+        duration = std::chrono::steady_clock::now() - time_lastSafetyStatusSent;
+        //auto duration_s = std::chrono::duration_cast<std::chrono::seconds>(duration);
+        if (duration >= std::chrono::seconds(1))
         {
+
             std_msgs::msg::Int8 force_stop_type_msg;
             force_stop_type_msg.data = force_stop_type;
             force_stop_type_pub_->publish(force_stop_type_msg);
@@ -237,7 +290,9 @@ class AntobotSafety : public rclcpp::Node
             safe_operation_msg.data = safe_operation;
             safe_operation_pub_->publish(safe_operation_msg);
 
-            t_lastSafetyStatusSent = clock();
+            //t_lastSafetyStatusSent = clock();
+
+            time_lastSafetyStatusSent = std::chrono::steady_clock::now();
         }
 
         autoRelease();
@@ -426,8 +481,8 @@ class AntobotSafety : public rclcpp::Node
         {
             // Blinking with constant frequency (light_freq)
             lightCmdFreq();
-            lights_f_cmd.data = light_cmd_ar[0];
-            lights_b_cmd.data = light_cmd_ar[1];
+            lights_f_cmd.data = light_cmd_arr[0];
+            lights_b_cmd.data = light_cmd_arr[1];
         }
         
         // Publishes the data to ROS
@@ -440,15 +495,22 @@ class AntobotSafety : public rclcpp::Node
         /* Sends light commands at a set frequency, defined in the class initialisation
         */
 
-        float t_light_freq_thresh;
-        t_light_freq_thresh = 1.0/safety_light_freq;
+        int t_light_freq_thresh;
+        t_light_freq_thresh = int(1.0/safety_light_freq * 1000);
 
         // If past a time threshold, lights will change state
-        if (30.0*(clock() - t_safety_light)/(float)CLOCKS_PER_SEC > t_light_freq_thresh)
-        {
-            light_cmd_ar[0] = !light_cmd_ar[0];
-            light_cmd_ar[1] = !light_cmd_ar[1];
+
+        auto duration = std::chrono::steady_clock::now() - time_safety_light;
+        //auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+        //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: lightCmdFreq: " << duration_ms.count() << " ms; t_light_freq_thresh: " << t_light_freq_thresh);
+        // if (30.0*(clock() - t_safety_light)/(float)CLOCKS_PER_SEC > t_light_freq_thresh)
+        if (duration > std::chrono::milliseconds(t_light_freq_thresh))
+        {   
+            //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: lightCmdFreq" << duration_ms.count() << " ms");
+            light_cmd_arr[0] = !light_cmd_arr[0];
+            light_cmd_arr[1] = !light_cmd_arr[1];
             t_safety_light = clock();
+            time_safety_light = std::chrono::steady_clock::now();
         }
     }
 
@@ -457,7 +519,7 @@ class AntobotSafety : public rclcpp::Node
         /* Automatically releases the robot from its force stopped state if the previously 
         detected object is no longer being detected */
         
-        if (force_stop)
+        if (force_stop && auto_release)
         {
             // First, check how the robot is moving
             int cmd_vel_type = getCmdVelType();
@@ -479,6 +541,7 @@ class AntobotSafety : public rclcpp::Node
                 else
                 {
                     t_force_stop = clock();     // Resets the timer if the object is still there
+                    time_force_stop = std::chrono::steady_clock::now();
                 }
             }
         }  
@@ -574,12 +637,16 @@ class AntobotSafety : public rclcpp::Node
         cmd_vel_msg.linear.x = linear_vel;
         cmd_vel_msg.angular.z = angular_vel;
 
+        safe_operation = true;
+
         // Provides time that the command was received
         t_lastRcvdCmdVel = clock();
+        time_lastRcvdCmdVel = std::chrono::steady_clock::now();
+        time_lastStopTriggerWarning = std::chrono::steady_clock::now();
         
     }
 
-    void ussDistCallback(const std_msgs::msg::Int16MultiArray &msg)
+    void ussDistCallback(const antobot_platform_msgs::msg::UInt16Array &msg)
     {
         /*  Reads in the data from the ultrasonic sensors and, based on the current movement of the robot, makes a recommendation 
             for whether the robot should slow down or whether its current speed/movement is acceptable. */
@@ -589,20 +656,75 @@ class AntobotSafety : public rclcpp::Node
         //  Outputs: publishes filtered USS data to /antobot_safety/uss_dist ROS topic
 
         
-        std_msgs::msg::Int16MultiArray uss_dist_filt_all;
-        uint16_t uss_dist_ar[8];
-        uint16_t uss_dist_filt_i;
-        for (int i=0; i<8; i++)
-            uss_dist_ar[i] = msg.data[i];
 
-        // Define the filtered USS dist class variable 
-        //uss_dist_filt = ussDistFilt(uss_dist_ar);
-        for (int i=0; i<8; i++)
-        {
-            uss_dist_filt_i = uss_dist_ar[i];
-            uss_dist_filt_all.data.push_back(uss_dist_filt_i);
+
+        static constexpr int USS_NUM  = 8;
+        static constexpr int WIN_SIZE = 10;
+
+        static uint16_t uss_buf[WIN_SIZE][USS_NUM] = {0};
+        static uint32_t uss_sum[USS_NUM] = {0};
+        static int buf_idx = 0;
+        static int buf_cnt = 0;
+
+        // 移除最旧帧
+        if (buf_cnt == WIN_SIZE) {
+            for (int i = 0; i < USS_NUM; i++) {
+                uss_sum[i] -= uss_buf[buf_idx][i];
+            }
+        } else {
+            buf_cnt++;
         }
-        uss_dist_filt=uss_dist_filt_all;
+
+        // 写入新帧
+        for (int i = 0; i < USS_NUM; i++) {
+            uss_buf[buf_idx][i] = msg.data[i];
+            uss_sum[i] += msg.data[i];
+        }
+
+        buf_idx = (buf_idx + 1) % WIN_SIZE;
+
+        uint16_t uss_avg[USS_NUM];
+        for (int i = 0; i < USS_NUM; i++) {
+            uss_avg[i] = static_cast<uint16_t>(uss_sum[i] / buf_cnt);
+        }
+
+        antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
+        uint16_t uss_dist_ar[USS_NUM] = {200};
+
+        if (uss_back_enable && uss_front_enable) {
+            uint16_t tmp[USS_NUM] = {
+                200, uss_avg[1], 200, 200,
+                200, uss_avg[4], 200, 200
+            };
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+
+        } else if (uss_front_enable) {
+            uint16_t tmp[USS_NUM] = {
+                200, uss_avg[1], 200, 200,
+                200, 200, 200, 200
+            };
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+
+        } else if (uss_back_enable) {
+            uint16_t tmp[USS_NUM] = {
+                200, 200, 200, 200,
+                200, uss_avg[4], 200, 200
+            };
+            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+
+        }
+
+        // -----------------------------
+        // Publish
+        // -----------------------------
+        uss_dist_filt_all.data.clear();
+        uss_dist_filt_all.data.reserve(USS_NUM);
+
+        for (int i = 0; i < USS_NUM; i++) {
+            uss_dist_filt_all.data.push_back(uss_dist_ar[i]);
+        }
+
+        uss_dist_filt = uss_dist_filt_all;
         uss_dist_filt_pub_->publish(uss_dist_filt);
         
     }
@@ -615,11 +737,21 @@ class AntobotSafety : public rclcpp::Node
     
         if (msg.data) 
         {
-                force_stop = false;
-                force_stop_release = true;
-                force_stop_bump = false;
-                force_stop_type = 0;
-                t_release = clock();
+            force_stop = false;
+            force_stop_release = true;
+            force_stop_bump = false;
+            force_stop_type = 0;
+            t_release = clock();
+
+            std_msgs::msg::Bool lights_f_cmd;
+            std_msgs::msg::Bool lights_b_cmd;
+
+            lights_f_cmd.data = false;
+            lights_b_cmd.data = false;
+
+            lights_f_pub_->publish(lights_f_cmd);
+            lights_b_pub_->publish(lights_b_cmd);
+
         }
         
     }
@@ -641,6 +773,8 @@ class AntobotSafety : public rclcpp::Node
                     force_stop_release = false;
                     force_stop_type = 9;
                     t_force_stop = clock();
+                    time_force_stop = std::chrono::steady_clock::now();
+                    time_safety_light = std::chrono::steady_clock::now();
                     t_safety_light = clock();
                     RCLCPP_INFO(this->get_logger(), "SF0110: Force stop by Front Bump Switch!");
                 }
@@ -666,6 +800,8 @@ class AntobotSafety : public rclcpp::Node
                     force_stop_release = false;
                     force_stop_type = 10;
                     t_force_stop = clock();
+                    time_force_stop = std::chrono::steady_clock::now();
+                    time_safety_light = std::chrono::steady_clock::now();
                     t_safety_light = clock();
                     RCLCPP_INFO(this->get_logger(), "SF0111: Force stop by Back Bump Switch!");
                 }
