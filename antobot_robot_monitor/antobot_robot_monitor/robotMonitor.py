@@ -108,7 +108,7 @@ class robotMonitor(Node):
         self.sub_GPS_data = self.create_subscription(NavSatFix,"/antobot_gps",self.GPS_callback,10)        # Should raw GPS data be used? What if it stops coming?
         self.sub_GPS_data
         self.sub_IMU = self.create_subscription(Imu,'/imu/data_corrected',  self.imu_callback,10)          # Subscriber for imu data corrected
-        self.sub_cmdVel = self.create_subscription(Twist,'/antobot_robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
+        self.sub_cmdVel = self.create_subscription(Twist,'/antobot/robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
 
         # Publish safety critical data
         self.pub_error_lv1_stk = self.create_publisher(Bool,"/as/error_lv1_stk",1)
@@ -160,7 +160,7 @@ class robotMonitor(Node):
             self.stuck_spotTurn = False
 
         # Stuck while moving straight(-ish)
-        if abs(self.cmdVel_linear.x) > 0.1: # and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
+        if abs(self.cmdVel_linear.x) > 0.1 and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
             self.robot_movement_distance()
             if self.cmdVel_straight_consistency and self.robot_movement_dist5 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
                 if self.stuck_straightMove is not True:
