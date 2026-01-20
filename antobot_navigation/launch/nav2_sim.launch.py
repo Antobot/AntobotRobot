@@ -41,20 +41,20 @@ def generate_launch_description():
 
     local_costmap = Node(
         package='nav2_costmap_2d',
-        executable='costmap_2d_node',
+        executable='nav2_costmap_2d',
         name='local_costmap',
         parameters=[costmap_common_sim_params, local_costmap_params],
     )
 
     global_costmap = Node(
         package='nav2_costmap_2d',
-        executable='costmap_2d_node',
+        executable='nav2_costmap_2d',
         name='global_costmap',
         parameters=[costmap_common_sim_params, global_costmap_params],
     )
 
     behaviour_server = Node(
-        package='nav2_behavior_server',
+        package='nav2_behaviors',
         executable='behavior_server',
         name='behaviour_server',
         output='screen',
@@ -79,7 +79,8 @@ def generate_launch_description():
         }]
     )
 
-    ld.add_action(args)
+    for arg in args:
+        ld.add_action(arg)
     ld.add_action(controller_server)
     ld.add_action(planner_server)
     ld.add_action(local_costmap)

@@ -85,7 +85,8 @@ def generate_launch_description():
         }]
     )
 
-    ld.add_action(args)
+    for arg in args:
+        ld.add_action(arg)
     ld.add_action(c32_node)
     ld.add_action(c16_node)
     return ld
