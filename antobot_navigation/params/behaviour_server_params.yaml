@@ -1,0 +1,7 @@
+behavior_server:
+  ros__parameters:
+    behavior_plugins: ["clear_costmap"]
+
+    clear_costmap:
+      plugin: "nav2_behaviors::ClearCostmap"
+      enabled: true

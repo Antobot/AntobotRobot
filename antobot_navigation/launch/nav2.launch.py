@@ -15,6 +15,7 @@ def generate_launch_description():
     costmap_common_params = os.path.join(get_package_share_directory('antobot_navigation'),'params', 'costmap_common_params.yaml')
     local_costmap_params = os.path.join(get_package_share_directory('antobot_navigation'), 'params', 'local_costmap_params.yaml')
     global_costmap_params = os.path.join(get_package_share_directory('antobot_navigation'), 'params', 'global_costmap_params.yaml')
+    behaviour_server_params = os.path.join(get_package_share_directory('antobot_navigation'), 'params', 'behaviour_server_params.yaml')
     
     args = [
         DeclareLaunchArgument('cmd_vel_topic', default_value='/am_nav/cmd_vel'),
@@ -42,6 +43,7 @@ def generate_launch_description():
         package='nav2_costmap_2d',
         executable='costmap_2d_node',
         name='local_costmap',
+        output='screen',
         parameters=[costmap_common_params, local_costmap_params],
     )
 
@@ -49,7 +51,16 @@ def generate_launch_description():
         package='nav2_costmap_2d',
         executable='costmap_2d_node',
         name='global_costmap',
+        output='screen',
         parameters=[costmap_common_params, global_costmap_params],
+    )
+
+    behaviour_server = Node(
+        package='nav2_behavior_server',
+        executable='behavior_server',
+        name='behaviour_server',
+        output='screen',
+        parameters=[behaviour_server_params],
     )
 
     lifecycle_manager = Node(
@@ -65,7 +76,7 @@ def generate_launch_description():
                 'planner_server',
                 'local_costmap',
                 'global_costmap',
-                'bt_navigator'
+                'behaviour_server'
             ]
         }]
     )
@@ -75,5 +86,6 @@ def generate_launch_description():
     ld.add_action(planner_server)
     ld.add_action(local_costmap)
     ld.add_action(global_costmap)
+    ld.add_action(behaviour_server)
     ld.add_action(lifecycle_manager)
     return ld
