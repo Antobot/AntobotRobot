@@ -1,0 +1,104 @@
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 5.0
+    min_x_velocity_threshold: 0.0001
+    min_y_velocity_threshold: 0.0001
+    min_theta_velocity_threshold: 0.0001
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    plugins: ["DWAPlanner", "EBandPlanner"]
+
+    local_costmap: "local_costmap"
+    # global_costmap: ""
+    # local_costmap_topic: "/costmap/costmap"
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.1
+      movement_time_allowance: 10.0
+      stateful: true
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 1.5
+      yaw_goal_tolerance: 6.0
+      stateful: true
+      goal_angle_tolerance: 0.1
+
+    DWAPlanner:
+      plugin: "dwb_core::DWBLocalPlanner"
+
+      # Robot configuration parameters  
+      max_vel_x: 1.0
+      min_vel_x: 0.0
+      max_vel_y: 0.0
+      min_vel_y: 0.0
+
+      # The velocity when robot is moving in a straight line
+      max_vel_trans: 1.0
+      min_vel_trans:  0.0
+
+      max_vel_theta: 3.5
+      min_vel_theta: 0.5
+
+      min_in_place_vel_theta: 0.1
+      
+      # the acceleration limits of the robot in m/s^2
+      acc_lim_x: 2.5
+      acc_lim_y: 2.5
+      acc_lim_theta: 6.0
+      acc_lim_trans: 2.5
+
+      # FORWARD SIMULATION PARAMETERS
+      # sim_time: The amount of time to forward-simulate trajectories in seconds
+      sim_time: 1.0
+      # time_granularity: the step size to take between points on a trajectory, or how frequent should the points on this trajectory should be examined
+      time_granularity: 0.1
+
+      #angular_granularity:The step size, in radians, to take between angular samples on a given trajectory
+      angular_granularity: 0.1
+
+      #vx_samples: The number of samples to use when exploring the x velocity space
+      vx_samples: 10
+
+      #vy_samples: The number of samples to use when exploring the y velocity space
+      vy_samples: 10
+
+      #vth_samples:The number of samples to use when exploring the theta velocity space
+      vtheta_samples: 20
+
+      # TRAJECTORY SCORING PARAMETERS
+
+      # path_distance_bias: weight for how much the local planner should stay close to the global path high value will make the local planner prefer trajectories on global path
+      path_distance_bias: 32.0   
+
+      #goal_distance_bias: is the weight for how much the robot should attempt to reach the local goal, with whatever path. Experiments show that increasing this parameter enables the robot to be less attached to the global path.
+      goal_distance_bias: 24.0
+    
+      # occdist scale is the weight for how much the robot should attempt to avoid obstacles. A high value for this parameter results in indecisive robot that stucks in place
+      occdist_scale: 0.01
+    
+      #forward_point_distance: The distance from the center point of the robot to place an additional scoring point, in meters
+      # forward_point_distance: 0.325
+
+      #stop_time_buffer:The amount of time that the robot must stop before a collision in order for a trajectory to be considered valid in seconds
+      # stop_time_buffer: 0.2
+
+      #scaling_speed: The absolute value of the velocity at which to start scaling the robot's footprint, in m/s
+      # scaling_speed: 0.25
+
+      #max_scaling_factor: The maximum factor to scale the robot's footprint by
+      # max_scaling_factor: 0.2
+
+      #OSCILLATION PREVENTION PARAMETERS
+
+      #oscillation_reset_dist: How far the robot must travel in meters before oscillation flags are reset
+      oscillation_reset_dist: 0.05
+
+      # Debugging
+      publish_traj_pc : true
+      publish_cost_grid_pc: true
+      
+      # how often the planning algorithm is performed (hz)
+      # controller_frequency: 10.0 
