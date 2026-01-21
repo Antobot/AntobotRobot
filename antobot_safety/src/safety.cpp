@@ -64,11 +64,8 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<int>("safe_operation_timeout_sec", 10);
         safe_operation_timeout_sec = this->get_parameter("safe_operation_timeout_sec").as_int();
 
-        this->declare_parameter<bool>("uss_enable", false);
-        uss_enable = this->get_parameter("uss_enable").as_bool();
-
-        this->declare_parameter<bool>("auto_release", false);
-        auto_release = this->get_parameter("auto_release").as_bool();
+        // this->declare_parameter<bool>("uss_enable", false);
+        // uss_enable = this->get_parameter("uss_enable").as_bool();
 
         this->declare_parameter<bool>("uss_front_enable", false);
         uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
@@ -76,12 +73,13 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("uss_back_enable", false);
         uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
 
+        this->declare_parameter<bool>("auto_release", false);
+        auto_release = this->get_parameter("auto_release").as_bool();
 
         RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
         RCLCPP_INFO_STREAM(this->get_logger(), "    frequency:" << frequency_);
         RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
         RCLCPP_INFO_STREAM(this->get_logger(), "    safe_operation_timeout_sec:" << safe_operation_timeout_sec);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_enable:" << uss_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
@@ -169,7 +167,7 @@ class AntobotSafety : public rclcpp::Node
     double frequency_;
     int no_command_timeout_msec;
     int safe_operation_timeout_sec;
-    bool uss_enable = false;
+    // bool uss_enable = false;
     bool auto_release = false;
     bool uss_front_enable = true;
     bool uss_back_enable = true;
@@ -192,7 +190,7 @@ class AntobotSafety : public rclcpp::Node
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
         */
         // Check USS recommendation
-        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && uss_enable)   // Only consider USS for specific defined safety levels
+        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && (uss_front_enable || uss_back_enable))   // Only consider USS for specific defined safety levels
         {
             if (ussDistSafetyCheck() && !force_stop && !force_stop_release) //Safety check not pass, not force stopped, no release // UNCOMMENT TO ENABLE USS!!
             {
