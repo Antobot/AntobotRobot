@@ -8,6 +8,7 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
+from antobot_com_postgresql.db_config_loader import get_robot_config
 
 def generate_launch_description():
 
@@ -18,12 +19,14 @@ def generate_launch_description():
     use_keyboard = True
 
     try:
-        package_path = get_package_share_directory('antobot_description')
-        config_file = os.path.join(package_path, 'config', 'platform_config.yaml')
+        # package_path = get_package_share_directory('antobot_description')
+        # config_file = os.path.join(package_path, 'config', 'platform_config.yaml')
 
-        with open(config_file, 'r') as file:
-            params = yaml.safe_load(file)
+        # with open(config_file, 'r') as file:
+        #     params = yaml.safe_load(file)
 
+        params = get_robot_config("platform_config")
+        
         joystick_type = params["teleop"]["joystick"]
         use_keyboard = params["teleop"]["keyboard"]
     except:
