@@ -167,6 +167,10 @@ class AntobotSafety : public rclcpp::Node
     double frequency_;
     int no_command_timeout_msec;
     int safe_operation_timeout_sec;
+    bool no_command_timeout = false;
+    bool safe_operation_timeout = false;
+
+
     // bool uss_enable = false;
     bool auto_release = false;
     bool uss_front_enable = true;
@@ -239,24 +243,32 @@ class AntobotSafety : public rclcpp::Node
         // Check time of last received command - if none received in the last ~1s, the robot should stop
         //if ((float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC > 0.05)      // This should NOT use ROS time, as if ROS stops, it should still stop the robot
         auto duration = std::chrono::steady_clock::now() - time_lastRcvdCmdVel;
-        // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
+
         if (duration > std::chrono::milliseconds(no_command_timeout_msec))
         {   
-            //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped2" << (float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC);
+            if (!no_command_timeout){
+                no_command_timeout = true;
+                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+                RCLCPP_WARN_STREAM(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (" << duration_ms.count() << " ms)");
+            }
             cmd_vel_msg.linear.x = 0;
             cmd_vel_msg.angular.z = 0;
-            //if ((float)(clock() - t_lastStopTriggerWarning)/CLOCKS_PER_SEC > 10.0)
             
             auto duration = std::chrono::steady_clock::now() - time_lastStopTriggerWarning;
-            //auto duration_s = std::chrono::duration_cast<std::chrono::seconds>(duration);
             if (duration > std::chrono::seconds(safe_operation_timeout_sec))
-            {
-                RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (" << safe_operation_timeout_sec << "s)");
-                //t_lastStopTriggerWarning = clock();
+            {   
+                if (!safe_operation_timeout){
+                    safe_operation_timeout = true;
+                    RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (" << safe_operation_timeout_sec << "s)");
+                }
+                    
                 time_lastStopTriggerWarning = std::chrono::steady_clock::now();
                 safe_operation = false;
             }
+        }
+        else if (no_command_timeout){
+            no_command_timeout = false;
+            safe_operation_timeout = false;
         }
 
         // Robot is moving too quickly toward an obstacle
