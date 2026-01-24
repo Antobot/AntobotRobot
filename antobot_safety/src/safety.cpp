@@ -59,11 +59,13 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<double>("frequency", 30.0);
         frequency_ = this->get_parameter("frequency").as_double();
 
-        this->declare_parameter<bool>("uss_enable", false);
-        uss_enable = this->get_parameter("uss_enable").as_bool();
+        this->declare_parameter<int>("no_command_timeout_msec", 100);
+        no_command_timeout_msec = this->get_parameter("no_command_timeout_msec").as_int();
+        this->declare_parameter<int>("safe_operation_timeout_sec", 10);
+        safe_operation_timeout_sec = this->get_parameter("safe_operation_timeout_sec").as_int();
 
-        this->declare_parameter<bool>("auto_release", false);
-        auto_release = this->get_parameter("auto_release").as_bool();
+        // this->declare_parameter<bool>("uss_enable", false);
+        // uss_enable = this->get_parameter("uss_enable").as_bool();
 
         this->declare_parameter<bool>("uss_front_enable", false);
         uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
@@ -71,12 +73,19 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("uss_back_enable", false);
         uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
 
+        this->declare_parameter<bool>("auto_release", false);
+        auto_release = this->get_parameter("auto_release").as_bool();
+
+        RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
+        RCLCPP_INFO_STREAM(this->get_logger(), "    frequency:" << frequency_);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    safe_operation_timeout_sec:" << safe_operation_timeout_sec);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
+
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
-
-        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: frequency_: " << frequency_);
-        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: uss_enable: " << uss_enable);
-
     }
 
   private:
@@ -156,7 +165,13 @@ class AntobotSafety : public rclcpp::Node
     bool safe_operation;
 
     double frequency_;
-    bool uss_enable = false;
+    int no_command_timeout_msec;
+    int safe_operation_timeout_sec;
+    bool no_command_timeout = false;
+    bool safe_operation_timeout = false;
+
+
+    // bool uss_enable = false;
     bool auto_release = false;
     bool uss_front_enable = true;
     bool uss_back_enable = true;
@@ -179,7 +194,7 @@ class AntobotSafety : public rclcpp::Node
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
         */
         // Check USS recommendation
-        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && uss_enable)   // Only consider USS for specific defined safety levels
+        if (safety_level != 1 && safety_level != 2 && safety_level != 5 && safety_level != 8 && (uss_front_enable || uss_back_enable))   // Only consider USS for specific defined safety levels
         {
             if (ussDistSafetyCheck() && !force_stop && !force_stop_release) //Safety check not pass, not force stopped, no release // UNCOMMENT TO ENABLE USS!!
             {
@@ -228,24 +243,32 @@ class AntobotSafety : public rclcpp::Node
         // Check time of last received command - if none received in the last ~1s, the robot should stop
         //if ((float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC > 0.05)      // This should NOT use ROS time, as if ROS stops, it should still stop the robot
         auto duration = std::chrono::steady_clock::now() - time_lastRcvdCmdVel;
-        // auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        // RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: update_time" << duration_ms.count() << " ms");
-        if (duration > std::chrono::milliseconds(50))
+
+        if (duration > std::chrono::milliseconds(no_command_timeout_msec))
         {   
-            //RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped2" << (float)(clock() - t_lastRcvdCmdVel)/CLOCKS_PER_SEC);
+            if (!no_command_timeout){
+                no_command_timeout = true;
+                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+                RCLCPP_WARN_STREAM(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (" << duration_ms.count() << " ms)");
+            }
             cmd_vel_msg.linear.x = 0;
             cmd_vel_msg.angular.z = 0;
-            //if ((float)(clock() - t_lastStopTriggerWarning)/CLOCKS_PER_SEC > 10.0)
             
             auto duration = std::chrono::steady_clock::now() - time_lastStopTriggerWarning;
-            //auto duration_s = std::chrono::duration_cast<std::chrono::seconds>(duration);
-            if (duration > std::chrono::seconds(10))
-            {
-                RCLCPP_INFO(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (10s)");
-                //t_lastStopTriggerWarning = clock();
+            if (duration > std::chrono::seconds(safe_operation_timeout_sec))
+            {   
+                if (!safe_operation_timeout){
+                    safe_operation_timeout = true;
+                    RCLCPP_INFO_STREAM(this->get_logger(), "SF0105: Robot stopped - no cmd_vel command received (" << safe_operation_timeout_sec << "s)");
+                }
+                    
                 time_lastStopTriggerWarning = std::chrono::steady_clock::now();
                 safe_operation = false;
             }
+        }
+        else if (no_command_timeout){
+            no_command_timeout = false;
+            safe_operation_timeout = false;
         }
 
         // Robot is moving too quickly toward an obstacle
