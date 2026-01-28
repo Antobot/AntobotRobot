@@ -8,8 +8,9 @@ from ament_index_python.packages import get_package_share_directory
 from antobot_com_postgresql.db_config_loader import get_robot_config
 
 def generate_launch_description():
-
-    platform_config = get_robot_config("platform_config")
+    packagePath = get_package_share_directory('antobot_description')
+    platform_config_path = os.path.join(packagePath, 'config', 'platform_config.yaml')
+    platform_config = get_robot_config("platform_config", platform_config_path)
 
     use_sim_time_value = not platform_config.get('robot_hardware', False)
 

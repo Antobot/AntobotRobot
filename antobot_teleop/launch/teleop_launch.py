@@ -24,8 +24,9 @@ def generate_launch_description():
 
         # with open(config_file, 'r') as file:
         #     params = yaml.safe_load(file)
-
-        params = get_robot_config("platform_config")
+        packagePath = get_package_share_directory('antobot_description')
+        platform_config_path = os.path.join(packagePath, 'config', 'platform_config.yaml')
+        params = get_robot_config("platform_config", platform_config_path)
         
         joystick_type = params["teleop"]["joystick"]
         use_keyboard = params["teleop"]["keyboard"]
