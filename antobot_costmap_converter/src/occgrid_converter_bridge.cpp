@@ -74,9 +74,10 @@ private:
     {
       std::chrono::duration<double, std::milli> dcomp = tc1 - tc0;
       std_msgs::msg::Float64 ms; ms.data = dcomp.count();
-      RCLCPP_INFO(get_logger(), "costmap_converter cluster compute: %.2f ms", ms.data);
+      // RCLCPP_INFO(get_logger(), "costmap_converter cluster compute: %.2f ms", ms.data);
     }
     auto obstacles = converter_->getObstacles();
+    // RCLCPP_INFO(get_logger(), "obstacles: %d", obstacles->obstacles.size());
     if (obstacles) {
       auto out = *obstacles;
       out.header = msg->header;
@@ -120,7 +121,7 @@ private:
     std::chrono::duration<double, std::milli> dt = t1 - t0;
     std_msgs::msg::Float64 ms_total; 
     ms_total.data = dt.count();
-    RCLCPP_INFO(get_logger(), "costmap_converter total compute: %.2f ms", ms_total.data);
+    // RCLCPP_INFO(get_logger(), "costmap_converter total compute: %.2f ms", ms_total.data);
   }
 
   pluginlib::ClassLoader<costmap_converter::BaseCostmapToPolygons> loader_;
