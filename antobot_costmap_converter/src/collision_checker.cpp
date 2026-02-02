@@ -19,8 +19,8 @@ public:
 
     // Parameters
     declare_parameter<std::string>("footprint_topic", "/costmap/footprint");
-    declare_parameter<double>("inflation_factor_1", 1.5);
-    declare_parameter<double>("inflation_factor_2", 2.0);
+    declare_parameter<double>("inflation_factor_1", 1.2);
+    declare_parameter<double>("inflation_factor_2", 1.5);
     declare_parameter<std::string>("clusters_topic", "/costmap_converter/obstacles");
     declare_parameter<std::string>("target_frame", "base_link");
     declare_parameter<double>("footprint_line_width", 0.06);
@@ -30,7 +30,7 @@ public:
     declare_parameter<double>("predict_horizon", 1.0);
     declare_parameter<int>("num_steps", 10);
     declare_parameter<bool>("publish_swept_marker", true);
-    declare_parameter<double>("swept_line_width", 0.06);
+    declare_parameter<double>("swept_line_width", 0.02);
     declare_parameter<std::string>("collision_strategy", "inflate");
 
     get_parameter("footprint_topic", footprint_topic_);
@@ -50,9 +50,10 @@ public:
       footprint_topic_, rclcpp::QoS(10), std::bind(&CollisionChecker::cbFootprint, this, std::placeholders::_1));
     sub_clusters_ = create_subscription<costmap_converter_msgs::msg::ObstacleArrayMsg>(
       clusters_topic_, rclcpp::QoS(10), std::bind(&CollisionChecker::cbClusters, this, std::placeholders::_1));
-
+    
+    // TODO
     sub_cmd_vel_ = create_subscription<geometry_msgs::msg::Twist>(
-      "/antobot/teleop/cmd_vel", rclcpp::QoS(10), std::bind(&CollisionChecker::cbCmdVel, this, std::placeholders::_1));
+      "/antobot/nav/cmd_vel_test", rclcpp::QoS(10), std::bind(&CollisionChecker::cbCmdVel, this, std::placeholders::_1));
 
       
     pub_collision_ = create_publisher<geometry_msgs::msg::PolygonStamped>("/collision_checker/collision_region", 10);
@@ -291,7 +292,10 @@ private:
       m1.action = visualization_msgs::msg::Marker::ADD;
       m1.pose.orientation.w = 1.0;
       m1.scale.x = std::max(0.01, swept_line_width_);
-      m1.color.r = 1.0; m1.color.g = 0.65; m1.color.b = 0.0; m1.color.a = 1.0;
+      m1.color.r = 1.0; 
+      m1.color.g = 0.65; 
+      m1.color.b = 0.0; 
+      m1.color.a = 1.0;
       m1.frame_locked = true;
       if (f1.size() >= 2) {
         for (size_t i = 0; i + 1 < f1.size(); ++i) {
@@ -462,16 +466,16 @@ private:
 
     int level = 0;
     if (collided1) 
-      level = 1; 
+      level = 2; 
     else if (collided2) 
-      level = 2;
+      level = 1;
 
     std_msgs::msg::Int16 lvl; 
     lvl.data = level; 
     pub_collision_level_->publish(lvl);
 
     if (publish_collision_polygon_ && level >= 0) {
-      const auto &chosen = (level == 2 ? coll_poly2 : coll_poly1);
+      const auto &chosen = (level == 2 ? coll_poly1 : coll_poly2);
       geometry_msgs::msg::PolygonStamped coll;
       coll.header = last_footprint_.value().header;
       coll.header.frame_id = target_frame_;
@@ -494,7 +498,7 @@ private:
     std::chrono::duration<double, std::milli> dt = t1 - t0;
     std_msgs::msg::Float64 ms;
     ms.data = dt.count();
-    RCLCPP_INFO(get_logger(), "collision tick compute: %.2f ms; collision level: %d", ms.data, level);
+    // RCLCPP_INFO(get_logger(), "collision tick compute: %.2f ms; collision level: %d", ms.data, level);
   }
 
   std::string footprint_topic_;
