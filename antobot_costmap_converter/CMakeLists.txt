@@ -16,6 +16,7 @@ find_package(std_msgs REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(costmap_converter REQUIRED)
+find_package(antobot_move_msgs REQUIRED)
 
 add_executable(occgrid_converter_bridge src/occgrid_converter_bridge.cpp)
 ament_target_dependencies(occgrid_converter_bridge
@@ -39,6 +40,7 @@ ament_target_dependencies(collision_checker
   geometry_msgs
   visualization_msgs
   costmap_converter_msgs
+  antobot_move_msgs
 )
 install(TARGETS collision_checker
   DESTINATION lib/${PROJECT_NAME}
