@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>antobot_costmap_converter</name>
+  <version>0.0.1</version>
+  <description>OccupancyGrid-based polygon converter (Antobot)</description>
+  <maintainer email="huaide.wang@nicecart.ai">AntoBot</maintainer>
+  <license>BSD</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>costmap_converter_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>pluginlib</depend>
+  <depend>costmap_converter</depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
