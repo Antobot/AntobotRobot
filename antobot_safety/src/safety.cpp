@@ -73,6 +73,13 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("uss_back_enable", false);
         uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
 
+
+        this->declare_parameter<bool>("bump_front_enable", true);
+        bump_front_enable = this->get_parameter("bump_front_enable").as_bool();
+
+        this->declare_parameter<bool>("bump_back_enable", true);
+        bump_back_enable = this->get_parameter("bump_back_enable").as_bool();
+
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
@@ -83,6 +90,7 @@ class AntobotSafety : public rclcpp::Node
         RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
+
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -175,6 +183,9 @@ class AntobotSafety : public rclcpp::Node
     bool auto_release = false;
     bool uss_front_enable = true;
     bool uss_back_enable = true;
+
+    bool bump_front_enable = true;
+    bool bump_back_enable = true;
 
     /*
     float robot_lin_vel_cmd;
@@ -782,7 +793,7 @@ class AntobotSafety : public rclcpp::Node
     void bumpFrontCallback(const std_msgs::msg::Bool &msg)
     {
         
-        if (msg.data)
+        if (bump_front_enable && msg.data)
         {
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
@@ -809,7 +820,7 @@ class AntobotSafety : public rclcpp::Node
     void bumpBackCallback(const std_msgs::msg::Bool &msg)
     {
         
-        if (msg.data)
+        if (bump_back_enable && msg.data)
         {
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
