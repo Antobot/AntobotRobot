@@ -209,10 +209,10 @@ private:
     void trackStatusCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
     {
         if (msg->data.size() < 4) {
-            RCLCPP_WARN_THROTTLE(
-                this->get_logger(), *this->get_clock(), 2000,
-                "trackStatusCallback: status data size=%zu < 4, ignore",
-                msg->data.size());
+            // RCLCPP_WARN_THROTTLE(
+            //     this->get_logger(), *this->get_clock(), 2000,
+            //     "trackStatusCallback: status data size=%zu < 4, ignore",
+            //     msg->data.size());
             return;
         }
 
@@ -241,31 +241,31 @@ private:
         velocity_smoother(now_sec);
 
         const auto & st = this->getState();
-        RCLCPP_INFO_THROTTLE(
-            this->get_logger(), *this->get_clock(), 1000,
-            "controlLoop: smoothed cmd v=%.3f m/s, w=%.3f rad/s (timed_out=%s)",
-            st.smoothed_cmd.linear,
-            st.smoothed_cmd.angular,
-            st.status.timed_out ? "true" : "false");
+        // RCLCPP_INFO_THROTTLE(
+        //     this->get_logger(), *this->get_clock(), 1000,
+        //     "controlLoop: smoothed cmd v=%.3f m/s, w=%.3f rad/s (timed_out=%s)",
+        //     st.smoothed_cmd.linear,
+        //     st.smoothed_cmd.angular,
+        //     st.status.timed_out ? "true" : "false");
 
         wheel_speed_compute();
 
         const auto & wheel_cmd = this->getState().wheel_cmd;
         std::size_t n = wheel_cmd.target_speed.size();
         if (n < 2) {
-            RCLCPP_WARN_THROTTLE(
-                this->get_logger(), *this->get_clock(), 2000,
-                "controlLoop: wheel_cmd.target_speed size = %zu (<2), nothing to publish", n);
+            // RCLCPP_WARN_THROTTLE(
+            //     this->get_logger(), *this->get_clock(), 2000,
+            //     "controlLoop: wheel_cmd.target_speed size = %zu (<2), nothing to publish", n);
             return;
         }
 
         double uL = wheel_cmd.target_speed[0];
         double uR = wheel_cmd.target_speed[1];
 
-        RCLCPP_INFO_THROTTLE(
-            this->get_logger(), *this->get_clock(), 500,
-            "Publishing track cmd to '%s': [uL=%.3f, uR=%.3f]",
-            track_cmd_topic_.c_str(), uL, uR);
+        // RCLCPP_INFO_THROTTLE(
+        //     this->get_logger(), *this->get_clock(), 500,
+        //     "Publishing track cmd to '%s': [uL=%.3f, uR=%.3f]",
+        //     track_cmd_topic_.c_str(), uL, uR);
 
         // Original track percent command
         std_msgs::msg::Float32MultiArray out;
