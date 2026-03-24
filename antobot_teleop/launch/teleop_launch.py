@@ -8,32 +8,28 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
-from antobot_com_postgresql.db_config_loader import get_robot_config
 
 def generate_launch_description():
 
     ld = LaunchDescription()
 
     # get joystick type
-    joystick_type = 'LogitechF710'
-    use_keyboard = True
+    joystick_type = 'MicrozoneC7MINI'
+    use_keyboard = False
 
     try:
-        # package_path = get_package_share_directory('antobot_description')
-        # config_file = os.path.join(package_path, 'config', 'platform_config.yaml')
+        package_path = get_package_share_directory('antobot_description')
+        config_file = os.path.join(package_path, 'config', 'platform_config.yaml')
 
-        # with open(config_file, 'r') as file:
-        #     params = yaml.safe_load(file)
-        packagePath = get_package_share_directory('antobot_description')
-        platform_config_path = os.path.join(packagePath, 'config', 'platform_config.yaml')
-        params = get_robot_config("platform_config", platform_config_path)
-        
+        with open(config_file, 'r') as file:
+            params = yaml.safe_load(file)
+
         joystick_type = params["teleop"]["joystick"]
         use_keyboard = params["teleop"]["keyboard"]
     except:
         pass
 
-    #print(joystick_type)
+    print(joystick_type)
 
     if joystick_type == "LogitechF710":
         joy_node = Node(
@@ -75,9 +71,9 @@ def generate_launch_description():
         joy_sbus_node = Node(
             package='antobot_devices_joy',
             executable='joy_sbus_node',
-            name='joy_node',
+            name='joy_node_c7',
             parameters=[{'dev': '/dev/anto_joy'}],
-            remappings=[('joy', 'joy_sbus')]
+            remappings=[('joy_sbus', 'joy')]
         )
         ld.add_action(joy_sbus_node)
 

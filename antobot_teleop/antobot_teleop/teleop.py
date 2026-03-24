@@ -25,6 +25,7 @@ from geometry_msgs.msg import Twist
 # Import the different methods of input
 from antobot_teleop.teleop_joystick import teleop_joystick
 from antobot_teleop.teleop_keyboard import teleop_keyboard
+from antobot_teleop.teleop_webUI import teleop_webUI
 
 
 
@@ -43,6 +44,7 @@ class MasterTeleop(Node):
         if self.use_keyboard:
             self.teleop_method[1] = teleop_keyboard(self)
             self.teleop_method[1].print_msg()
+        self.teleop_method[2] = teleop_webUI(self)
         self.teleop_mode=None # No method is the default
 
         # Set a timeout, after which a teleop input is no longer considered active
@@ -89,16 +91,24 @@ class MasterTeleop(Node):
 
         if (now-self.teleop_method[0].lastUpdate)<self.inputTimeout:
             self.teleop_mode=0 # Set the index for the active method
+            self.teleop_method[2].trigger_active=False
             if self.use_keyboard:
                 self.teleop_method[1].trigger_active=False # De-activate the other methods
 
         elif self.use_keyboard and (now-self.teleop_method[1].lastUpdate)<self.inputTimeout:
             self.teleop_mode=1 # Set the index for this method
             self.teleop_method[0].trigger_active=False # De-activate the other methods
+            self.teleop_method[2].trigger_active=False
+        elif (now-self.teleop_method[2].lastUpdate)<self.inputTimeout:
+            self.teleop_mode=2
+            self.teleop_method[0].trigger_active=False
+            if self.use_keyboard:
+                self.teleop_method[1].trigger_active=False
         else: # De-activate all methods
             self.teleop_method[0].trigger_active=False
             if self.use_keyboard:
                 self.teleop_method[1].trigger_active=False
+            self.teleop_method[2].trigger_active=False
 
 
         # Update the triggers and cmd_vel

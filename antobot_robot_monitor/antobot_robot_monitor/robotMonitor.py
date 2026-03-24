@@ -108,7 +108,7 @@ class robotMonitor(Node):
         self.sub_GPS_data = self.create_subscription(NavSatFix,"/antobot_gps",self.GPS_callback,10)        # Should raw GPS data be used? What if it stops coming?
         self.sub_GPS_data
         self.sub_IMU = self.create_subscription(Imu,'/imu/data_corrected',  self.imu_callback,10)          # Subscriber for imu data corrected
-        self.sub_cmdVel = self.create_subscription(Twist,'/antobot/robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
+        self.sub_cmdVel = self.create_subscription(Twist,'/antobot_robot/cmd_vel',  self.cmdVel_callback,10)    # Subscriber for cmd velocity
 
         # Publish safety critical data
         self.pub_error_lv1_stk = self.create_publisher(Bool,"/as/error_lv1_stk",1)
@@ -124,7 +124,7 @@ class robotMonitor(Node):
 
     def cmdVel_consistency_check(self):
         # Just do a simple average check to see if it was consistently spot turning or moving forward
-        if len(self.cmdVel_linear_buffer) == 10: # when the list is full
+        if len(self.cmdVel_linear_buffer) == 5: # when the list is full
             if all(num > 0.1 for num in self.cmdVel_linear_buffer) or all(num < -0.1 for num in self.cmdVel_linear_buffer):
                 self.cmdVel_straight_consistency = True
             else: 
@@ -141,6 +141,10 @@ class robotMonitor(Node):
         # # # Determines whether the robot is currently stuck (i.e. commands are being sent, but the robot isn't moving)
         
         self.cmdVel_consistency_check()
+        #print(self.cmdVel_straight_consistency)
+        #print(self.cmdVel_spotTurn_consistency)
+
+
 
         # Stuck during spot turn (indicated by IMU)
         if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
@@ -156,11 +160,11 @@ class robotMonitor(Node):
             self.stuck_spotTurn = False
 
         # Stuck while moving straight(-ish)
-        if abs(self.cmdVel_linear.x) > 0.1 and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
+        if abs(self.cmdVel_linear.x) > 0.1: # and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
             self.robot_movement_distance()
             if self.cmdVel_straight_consistency and self.robot_movement_dist5 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
                 if self.stuck_straightMove is not True:
-                    self.stuck_straightMove_t = time.time() # will report 5 seconds later as it checks for consistency
+                    self.stuck_straightMove_t = time.time() # will report 5 secons later as it checks for consistency
                     self.stuck_straightMove_f = True
                 self.stuck_straightMove = True
             else:
@@ -192,6 +196,8 @@ class robotMonitor(Node):
             self.pub_error_lv1_stk.publish(msg2)
 
 
+
+
     def error_lv_report(self):
         # # # Reports how "stuck" the robot is, depending on how long it has been stuck (in seconds)
         
@@ -210,9 +216,9 @@ class robotMonitor(Node):
                 stuck_time = time.time() - self.stuck_straightMove_t
                 if stuck_time > 30:
                     stuck_straightMove_lvl_i = 3
-                elif stuck_time > 20:
+                elif stuck_time > 15:
                     stuck_straightMove_lvl_i = 2
-                elif stuck_time > 10:
+                elif stuck_time > 5:
                     stuck_straightMove_lvl_i = 1
 
         # Logging
@@ -220,9 +226,9 @@ class robotMonitor(Node):
             if stuck_straightMove_lvl_i == 3:
                 self.logger.error("MV0100: Robot has been stuck for 30 seconds (straight move)")
             elif stuck_straightMove_lvl_i == 2:
-                self.logger.warning("MV0100: Robot has been stuck for 20 seconds (straight move)")
+                self.logger.warning("MV0100: Robot has been stuck for 15 seconds (straight move)")
             elif stuck_straightMove_lvl_i == 1:
-                self.logger.warning("MV0100: Robot has been stuck for 10 seconds (straight move)")
+                self.logger.warning("MV0100: Robot has been stuck for 5 seconds (straight move)")
             elif stuck_straightMove_lvl_i == 0:
                 self.logger.info("MV0100: Robot no longer stuck (straight move)")
             self.stuck_straightMove_lvl = stuck_straightMove_lvl_i
@@ -492,7 +498,7 @@ class robotMonitor(Node):
 
         # Update the buffer every second
         if (time.time()- self.cmdVel_time) > 1:
-            if len(self.cmdVel_linear_buffer) > 9:
+            if len(self.cmdVel_linear_buffer) > 4:
                 self.cmdVel_linear_buffer.pop(0)
                 self.cmdVel_angular_buffer.pop(0)
             self.cmdVel_linear_buffer.append(self.cmdVel_linear.x)

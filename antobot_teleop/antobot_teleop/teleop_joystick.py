@@ -46,12 +46,15 @@ class teleop_joystick:
         self.debug=False # Set to true to log joystick inputs
 
         # axis numbers
-        self.axis_analog_left = 1  # left joystick up/down axis number (linear velocity)
+        self.axis_analog_left = 4  # left joystick up/down axis number (linear velocity)
         self.axis_analog_right = 3  # right joystick left/right axis number (angular velocity)
         self.axis_dpad_back_forward = 7  # dpad up/down axis number
         self.axis_dpad_left_right = 6  # dpad left/right axis number        
         self.axis_lt = 2 # left trigger axis number
         self.axis_rt = 5 # right trigger axis number (modifier)
+        self.knob_right = 8
+        self.knob_left = 9
+
 
         # button numbers
         self.button_a = 0
