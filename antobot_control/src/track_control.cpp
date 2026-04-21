@@ -8,8 +8,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
+#include "antobot_platform_msgs/msg/float32_array.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-
 
 #include "antobot_control/anto_control_base.hpp"
 
@@ -20,16 +20,15 @@ class TrackControlNode
     , public antobot_control::AntoControlBase
 {
 public:
-
     TrackControlNode()
     : Node("track_control")
     {
         // Declare ROS parameters
         this->declare_parameter<double>("max_motor_rpm",        3000.0);
         this->declare_parameter<double>("gear_ratio",           40.0);
-        this->declare_parameter<double>("sprocket_diameter_m",  0.210);
-        this->declare_parameter<double>("body_width_m",         0.830);
-        this->declare_parameter<double>("track_width_m",        0.150);
+        this->declare_parameter<double>("sprocket_diameter_m",  0.3038);
+        this->declare_parameter<double>("body_width_m",         0.720);
+        this->declare_parameter<double>("track_width_m",        0.180);
 
         this->declare_parameter<double>("spot_turn_v_thresh",   0.02);
         this->declare_parameter<double>("spot_turn_w_bias",     1.0);
@@ -43,14 +42,14 @@ public:
         this->declare_parameter<double>("control_frequency_hz", 30.0);
         this->declare_parameter<double>("velocity_timeout_sec", 0.1);
 
-        this->declare_parameter<double>("max_linear",           0.5);
-        this->declare_parameter<double>("min_linear",          -0.5);
-        this->declare_parameter<double>("max_angular",          0.5);
-        this->declare_parameter<double>("min_angular",         -0.5);
+        this->declare_parameter<double>("max_linear",           1.0);
+        this->declare_parameter<double>("min_linear",          -1.0);
+        this->declare_parameter<double>("max_angular",          1.0);
+        this->declare_parameter<double>("min_angular",         -1.0);
 
-        this->declare_parameter<double>("max_linear_accel",     0.2);
+        this->declare_parameter<double>("max_linear_accel",     0.3);
         this->declare_parameter<double>("max_linear_decel",    -3.0);
-        this->declare_parameter<double>("max_angular_accel",    0.5);
+        this->declare_parameter<double>("max_angular_accel",    0.3);
         this->declare_parameter<double>("max_angular_decel",   -3.0);
 
         this->declare_parameter<bool>("enable_smoothing",       true);
@@ -65,6 +64,9 @@ public:
         this->declare_parameter<std::string>("odom_topic",           "/antobot/robot/odom");
         this->declare_parameter<std::string>("odom_frame_id",        "odom");
         this->declare_parameter<std::string>("base_frame_id",        "base_link");
+
+        // New: fake wheel cmd topic for indicator light
+        this->declare_parameter<std::string>("fake_wheel_cmd_topic", "/antobridge/wheel_vel_cmd");
 
         // Get ROS parameter values
         this->get_parameter("max_motor_rpm",       max_motor_rpm_);
@@ -105,6 +107,7 @@ public:
         this->get_parameter("odom_topic",           odom_topic_);
         this->get_parameter("odom_frame_id",        odom_frame_id_);
         this->get_parameter("base_frame_id",        base_frame_id_);
+        this->get_parameter("fake_wheel_cmd_topic", fake_wheel_cmd_topic_);
 
         track_center_dist_m_ = body_width_m_ - track_width_m_;
 
@@ -135,6 +138,9 @@ public:
         // Setup ROS publishers
         track_cmd_pub_ = this->create_publisher<std_msgs::msg::Float32MultiArray>(
             track_cmd_topic_, 10);
+
+        fake_wheel_cmd_pub_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
+            fake_wheel_cmd_topic_, 10);
 
         odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>(
             odom_topic_, 10);
@@ -173,22 +179,26 @@ public:
                     "TrackControlNode initialized. "
                     "max_motor_rpm=%.1f gear_ratio=%.2f sprocket_diameter=%.3f m",
                     max_motor_rpm_, gear_ratio_, sprocket_diameter_m_);
+
         RCLCPP_INFO(this->get_logger(),
                     "track_center_dist=%.3f m, spot_turn_v_thresh=%.3f, deadband=%.3f, ramp_limit_per_sec=%.3f",
                     track_center_dist_m_, spot_turn_v_thresh_, deadband_, ramp_limit_per_sec_);
+
         RCLCPP_INFO(this->get_logger(),
                     "cmd_vel subscribed from '%s' (use_teleop_topic=%s)",
                     cmd_topic.c_str(), use_teleop_topic_ ? "true" : "false");
+
         RCLCPP_INFO(this->get_logger(),
-                    "Publishing track cmd to '%s', odom to '%s'",
-                    track_cmd_topic_.c_str(), odom_topic_.c_str());
+                    "Publishing track cmd to '%s', fake wheel cmd to '%s', odom to '%s'",
+                    track_cmd_topic_.c_str(), fake_wheel_cmd_topic_.c_str(), odom_topic_.c_str());
+
         RCLCPP_INFO(this->get_logger(),
                     "Computed k=%.3f rpm/(m/s), v_max=%.3f m/s (%.2f km/h)",
                     k, v_max, v_max * 3.6);
     }
 
 private:
-    //cmd_vel callback: twist commands
+    // cmd_vel callback: twist commands
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
     {
         const double now_sec = this->now().seconds();
@@ -198,6 +208,14 @@ private:
     // Track status callback: read motor RPM feedback and update odometry
     void trackStatusCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
     {
+        if (msg->data.size() < 4) {
+            // RCLCPP_WARN_THROTTLE(
+            //     this->get_logger(), *this->get_clock(), 2000,
+            //     "trackStatusCallback: status data size=%zu < 4, ignore",
+            //     msg->data.size());
+            return;
+        }
+
         // Extract left/right motor RPMs from indices 2 and 3
         double left_rpm  = static_cast<double>(msg->data[2]);
         double right_rpm = static_cast<double>(msg->data[3]);
@@ -215,7 +233,7 @@ private:
         publishOdom();
     }
 
-        // Control loop: smoothing + wheel command computation + publishing
+    // Control loop: smoothing + wheel command computation + publishing
     void controlLoop()
     {
         double now_sec = this->now().seconds();
@@ -223,42 +241,51 @@ private:
         velocity_smoother(now_sec);
 
         const auto & st = this->getState();
-        RCLCPP_INFO_THROTTLE(
-            this->get_logger(), *this->get_clock(), 1000,
-            "controlLoop: smoothed cmd v=%.3f m/s, w=%.3f rad/s (timed_out=%s)",
-            st.smoothed_cmd.linear,
-            st.smoothed_cmd.angular,
-            st.status.timed_out ? "true" : "false");
+        // RCLCPP_INFO_THROTTLE(
+        //     this->get_logger(), *this->get_clock(), 1000,
+        //     "controlLoop: smoothed cmd v=%.3f m/s, w=%.3f rad/s (timed_out=%s)",
+        //     st.smoothed_cmd.linear,
+        //     st.smoothed_cmd.angular,
+        //     st.status.timed_out ? "true" : "false");
 
         wheel_speed_compute();
 
         const auto & wheel_cmd = this->getState().wheel_cmd;
         std::size_t n = wheel_cmd.target_speed.size();
         if (n < 2) {
-            RCLCPP_WARN_THROTTLE(
-                this->get_logger(), *this->get_clock(), 2000,
-                "controlLoop: wheel_cmd.target_speed size = %zu (<2), nothing to publish", n);
+            // RCLCPP_WARN_THROTTLE(
+            //     this->get_logger(), *this->get_clock(), 2000,
+            //     "controlLoop: wheel_cmd.target_speed size = %zu (<2), nothing to publish", n);
             return;
         }
 
         double uL = wheel_cmd.target_speed[0];
         double uR = wheel_cmd.target_speed[1];
 
-        RCLCPP_INFO_THROTTLE(
-            this->get_logger(), *this->get_clock(), 500,
-            "Publishing track cmd to '%s': [uL=%.3f, uR=%.3f]",
-            track_cmd_topic_.c_str(), uL, uR);
+        // RCLCPP_INFO_THROTTLE(
+        //     this->get_logger(), *this->get_clock(), 500,
+        //     "Publishing track cmd to '%s': [uL=%.3f, uR=%.3f]",
+        //     track_cmd_topic_.c_str(), uL, uR);
 
+        // Original track percent command
         std_msgs::msg::Float32MultiArray out;
         out.data.resize(2);
         out.data[0] = static_cast<float>(uL);
         out.data[1] = static_cast<float>(uR);
         track_cmd_pub_->publish(out);
+
+        // Fake wheel velocity command for lamp / indicator logic
+        // Map track command to 4-wheel style command: [L, L, R, R]
+        antobot_platform_msgs::msg::Float32Array fake_out;
+        fake_out.data.resize(4);
+        fake_out.data[0] = static_cast<float>(uL); // left front
+        fake_out.data[1] = static_cast<float>(uL); // left rear
+        fake_out.data[2] = static_cast<float>(uR); // right front
+        fake_out.data[3] = static_cast<float>(uR); // right rear
+        fake_wheel_cmd_pub_->publish(fake_out);
     }
 
-
-    //Implementation of AntoControlBase virtual: twist -> track commands
-
+    // Implementation of AntoControlBase virtual: twist -> track commands
     void wheel_speed_compute() override
     {
         auto & state = this->state_;
@@ -331,8 +358,7 @@ private:
         }
     }
 
-    //Implementation of AntoControlBase virtual: wheel RPM -> robot twist
- 
+    // Implementation of AntoControlBase virtual: wheel RPM -> robot twist
     void compute_robot_twist_from_wheels(double & linear, double & angular) override
     {
         auto & state = this->state_;
@@ -362,8 +388,8 @@ private:
         linear  = 0.5 * (vL + vR);
         angular = (vR - vL) / track_center_dist_m_;
     }
-    //Odometry publisher: convert AntoControlBase odom state to ROS message
 
+    // Odometry publisher: convert AntoControlBase odom state to ROS message
     void publishOdom()
     {
         const auto & odom_state = this->state_.odom;
@@ -395,7 +421,7 @@ private:
         msg.twist.twist.angular.y = 0.0;
         msg.twist.twist.angular.z = odom_state.angular;
 
-        // Covariances (can be tuned as needed)
+        // Covariances
         for (int i = 0; i < 36; ++i) {
             msg.pose.covariance[i]  = 0.0;
             msg.twist.covariance[i] = 0.0;
@@ -405,11 +431,13 @@ private:
     }
 
 private:
-
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr track_status_sub_;
+
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr track_cmd_pub_;
+    rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr fake_wheel_cmd_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+
     rclcpp::TimerBase::SharedPtr control_timer_;
 
     double max_motor_rpm_{3000.0};
@@ -451,6 +479,7 @@ private:
     std::string odom_topic_;
     std::string odom_frame_id_;
     std::string base_frame_id_;
+    std::string fake_wheel_cmd_topic_;
 
     rclcpp::Time last_ramp_time_;
     double prev_left_norm_{0.0};
