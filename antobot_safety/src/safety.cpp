@@ -170,7 +170,7 @@ class AntobotSafety : public rclcpp::Node
     std::string robot_role;
     int safety_level;
 
-    bool safe_operation;
+    bool safe_operation = true;
 
     double frequency_;
     int no_command_timeout_msec;
