@@ -187,8 +187,7 @@ class AntobotSafety : public rclcpp::Node
 
     bool bump_front_enable = true;
     bool bump_back_enable = true;
-    bool bump_front_pressed = false;
-    bool bump_back_pressed = false;
+    bool uv_bump_interlock = false;
 
     /*
     float robot_lin_vel_cmd;
@@ -782,6 +781,7 @@ class AntobotSafety : public rclcpp::Node
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
+            uv_bump_interlock = false;
             force_stop_type = 0;
             t_release = clock();
 
@@ -793,6 +793,7 @@ class AntobotSafety : public rclcpp::Node
 
             lights_f_pub_->publish(lights_f_cmd);
             lights_b_pub_->publish(lights_b_cmd);
+            publishUvSafeOperation();
 
         }
         
@@ -801,17 +802,17 @@ class AntobotSafety : public rclcpp::Node
     void publishUvSafeOperation()
     {
         std_msgs::msg::Bool uv_safe_operation_msg;
-        uv_safe_operation_msg.data = !(bump_front_pressed || bump_back_pressed);
+        uv_safe_operation_msg.data = !uv_bump_interlock;
         uv_safe_operation_pub_->publish(uv_safe_operation_msg);
     }
 
     void bumpFrontCallback(const std_msgs::msg::Bool &msg)
     {
-        bump_front_pressed = bump_front_enable && msg.data;
-        publishUvSafeOperation();
-        
         if (bump_front_enable && msg.data)
         {
+            uv_bump_interlock = true;
+            publishUvSafeOperation();
+
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -836,11 +837,11 @@ class AntobotSafety : public rclcpp::Node
 
     void bumpBackCallback(const std_msgs::msg::Bool &msg)
     {
-        bump_back_pressed = bump_back_enable && msg.data;
-        publishUvSafeOperation();
-        
         if (bump_back_enable && msg.data)
         {
+            uv_bump_interlock = true;
+            publishUvSafeOperation();
+
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
