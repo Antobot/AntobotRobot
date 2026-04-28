@@ -807,7 +807,7 @@ class AntobotSafety : public rclcpp::Node
     {
         if (bump_front_enable && msg.data)
         {
-            uv_bump_interlock = true;
+
             publishUvSafeOperation();
 
             int cmd_vel_type;
@@ -818,6 +818,7 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+                    uv_bump_interlock = true;
                     force_stop_bump = true;
                     force_stop_release = false;
                     force_stop_type = 9;
@@ -836,7 +837,7 @@ class AntobotSafety : public rclcpp::Node
     {
         if (bump_back_enable && msg.data)
         {
-            uv_bump_interlock = true;
+            
             publishUvSafeOperation();
 
             int cmd_vel_type;
@@ -847,6 +848,7 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+                    uv_bump_interlock = true;
                     force_stop_bump = true;
                     force_stop_release = false;
                     force_stop_type = 10;
