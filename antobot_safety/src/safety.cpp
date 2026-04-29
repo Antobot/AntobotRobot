@@ -808,8 +808,6 @@ class AntobotSafety : public rclcpp::Node
         if (bump_front_enable && msg.data)
         {
 
-            publishUvSafeOperation();
-
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -829,6 +827,7 @@ class AntobotSafety : public rclcpp::Node
                     RCLCPP_INFO(this->get_logger(), "SF0110: Force stop by Front Bump Switch!");
                 }
             }
+            publishUvSafeOperation();
         }
         
     }
@@ -838,8 +837,6 @@ class AntobotSafety : public rclcpp::Node
         if (bump_back_enable && msg.data)
         {
             
-            publishUvSafeOperation();
-
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -859,6 +856,7 @@ class AntobotSafety : public rclcpp::Node
                     RCLCPP_INFO(this->get_logger(), "SF0111: Force stop by Back Bump Switch!");
                 }
             }
+            publishUvSafeOperation();
         }   
     }
 
