@@ -36,7 +36,7 @@ public:
         this->declare_parameter<double>("deadband",             0.02);
         this->declare_parameter<double>("ramp_limit_per_sec",   2.0);
 
-        this->declare_parameter<bool>("use_teleop_topic",       true);
+        this->declare_parameter<bool>("use_teleop_topic",       false);
 
         // AntoControlBase-related parameters
         this->declare_parameter<double>("control_frequency_hz", 30.0);
@@ -370,8 +370,14 @@ private:
         }
 
         // Extract RPM values from feedback
-        double nL = state.wheel_feedback.measured_speed[0];
-        double nR = state.wheel_feedback.measured_speed[1];
+        double nL = state.wheel_feedback.measured_speed[0] - 20000.0;
+        double nR = state.wheel_feedback.measured_speed[1] - 20000.0;
+
+        /*RCLCPP_INFO(
+             this->get_logger(), 
+             "WHEEL FEEDBACK: measured speed L=%.3f m/s, measured speed R=%.3f rad/s",
+             nL, nR);
+	*/
 
         // Convert RPM to linear wheel speed (m/s)
         const double k = (60.0 * gear_ratio_) / (M_PI * sprocket_diameter_m_);
@@ -385,8 +391,8 @@ private:
         double vR = nR / k;
 
         // Differential-drive inverse kinematics
-        linear  = 0.5 * (vL + vR);
-        angular = (vR - vL) / track_center_dist_m_;
+        linear  = 0.5 * (-vL + vR);
+        angular = (vR + vL) / track_center_dist_m_;
     }
 
     // Odometry publisher: convert AntoControlBase odom state to ROS message
