@@ -36,7 +36,7 @@ public:
         this->declare_parameter<double>("deadband",             0.02);
         this->declare_parameter<double>("ramp_limit_per_sec",   2.0);
 
-        this->declare_parameter<bool>("use_teleop_topic",       true);
+        this->declare_parameter<bool>("use_teleop_topic",       false);
 
         // AntoControlBase-related parameters
         this->declare_parameter<double>("control_frequency_hz", 30.0);
