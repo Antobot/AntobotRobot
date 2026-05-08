@@ -391,8 +391,8 @@ private:
         double vR = nR / k;
 
         // Differential-drive inverse kinematics
-        linear  = 0.5 * (-vL + vR);
-        angular = (vR + vL) / track_center_dist_m_;
+        linear  = 0.5 * (vL + vR);
+        angular = (vR - vL) / track_center_dist_m_;
     }
 
     // Odometry publisher: convert AntoControlBase odom state to ROS message
