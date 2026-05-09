@@ -66,15 +66,15 @@ struct ControlParams
     double velocity_timeout_sec{0.1};
 
     // Robot-level velocity limits
-    double max_linear{0.5};
-    double min_linear{-0.5};
-    double max_angular{0.5};
-    double min_angular{-0.5};
+    double max_linear{0.2};
+    double min_linear{-0.2};
+    double max_angular{0.3};
+    double min_angular{-0.3};
 
     // Robot-level acceleration / deceleration limits
-    double max_linear_accel{0.2};     // m/s^2
+    double max_linear_accel{0.05};     // m/s^2
     double max_linear_decel{-3.0};    // m/s^2 
-    double max_angular_accel{0.5};    // rad/s^2
+    double max_angular_accel{0.2};    // rad/s^2
     double max_angular_decel{-3.0};   // rad/s^2
 
     // Feature switches
