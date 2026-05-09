@@ -61,7 +61,7 @@ public:
         this->declare_parameter<std::string>("teleop_cmd_vel_topic", "/antobot/teleop/cmd_vel");
         this->declare_parameter<std::string>("track_cmd_topic",      "/antobot/track/vel");
         this->declare_parameter<std::string>("track_status_topic",   "/antobot/track/status");
-        this->declare_parameter<std::string>("odom_topic",           "/antobot/robot/odom");
+        this->declare_parameter<std::string>("odom_topic",           "/antobot/robot/odometry");
         this->declare_parameter<std::string>("odom_frame_id",        "odom");
         this->declare_parameter<std::string>("base_frame_id",        "base_link");
 
@@ -370,8 +370,8 @@ private:
         }
 
         // Extract RPM values from feedback
-        double nL = state.wheel_feedback.measured_speed[0] - 20000.0;
-        double nR = state.wheel_feedback.measured_speed[1] - 20000.0;
+        double nL = state.wheel_feedback.measured_speed[0];
+        double nR = state.wheel_feedback.measured_speed[1];
 
         /*RCLCPP_INFO(
              this->get_logger(), 
