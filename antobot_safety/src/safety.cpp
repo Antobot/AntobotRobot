@@ -607,6 +607,9 @@ class AntobotSafety : public rclcpp::Node
 
         if (cmd_vel_msg.linear.x > vel_scale)
             cmd_vel_msg.linear.x = vel_scale;
+        else if (cmd_vel_msg.linear.x < -vel_scale)
+            cmd_vel_msg.linear.x = -vel_scale;
+
 
         if (vel_scale > 0)
             RCLCPP_DEBUG(this->get_logger(), "SF010%d: Limiting linear velocity to %f", force_stop_type, vel_scale);
