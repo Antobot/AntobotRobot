@@ -421,6 +421,7 @@ class AntobotSafety : public rclcpp::Node
         {
             not_safe_f = true;
             force_stop_type = 2;
+            RCLCPP_ERROR(this->get_logger(), "SF010%d: ussDistSafetyCheck_f - time_to_collision: %f; uss_dist_filt: %u", force_stop_type, time_to_collision, uss_dist_filt.data[1]);  //  Current error code indicates USS force stop, but could also be bump switch
             return not_safe_f;
         } 
 
@@ -468,6 +469,7 @@ class AntobotSafety : public rclcpp::Node
         {
             not_safe_b = true;
             force_stop_type = 6;
+            RCLCPP_ERROR(this->get_logger(), "SF010%d: ussDistSafetyCheck_b - time_to_collision: %f; uss_dist_filt: %u", force_stop_type, time_to_collision, uss_dist_filt.data[5]);
             return not_safe_b;
         } 
 
@@ -564,7 +566,7 @@ class AntobotSafety : public rclcpp::Node
             RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - cmd_vel_type: %d", force_stop_type, cmd_vel_type);
             if (cmd_vel_type > 0)
             {     
-                RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - uss_dist_filt: %f", force_stop_type, uss_dist_filt.data[cmd_vel_type - 1]);
+                RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - uss_dist_filt: %u", force_stop_type, uss_dist_filt.data[cmd_vel_type - 1]);
                 if (uss_dist_filt.data[cmd_vel_type - 1] > hard_dist_thresh)
                 {
                     RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - time: %f", force_stop_type, 30.0*(clock() - t_force_stop)/(float)CLOCKS_PER_SEC);
