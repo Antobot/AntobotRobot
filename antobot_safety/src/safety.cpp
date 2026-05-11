@@ -46,7 +46,7 @@ class AntobotSafety : public rclcpp::Node
         safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/safe_operation", 10);
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
-
+        uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
         // Initialising uss_dist_filt with fake data
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i=0; i<8; i++)
@@ -73,6 +73,13 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("uss_back_enable", false);
         uss_back_enable = this->get_parameter("uss_back_enable").as_bool();
 
+
+        this->declare_parameter<bool>("bump_front_enable", true);
+        bump_front_enable = this->get_parameter("bump_front_enable").as_bool();
+
+        this->declare_parameter<bool>("bump_back_enable", true);
+        bump_back_enable = this->get_parameter("bump_back_enable").as_bool();
+
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
@@ -83,6 +90,7 @@ class AntobotSafety : public rclcpp::Node
         RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
+
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -98,6 +106,7 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr uss_dist_filt_pub_;
     rclcpp::Publisher<std_msgs::msg::Int8>::SharedPtr force_stop_type_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr safe_operation_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uv_safe_operation_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
     
@@ -162,7 +171,7 @@ class AntobotSafety : public rclcpp::Node
     std::string robot_role;
     int safety_level;
 
-    bool safe_operation;
+    bool safe_operation = true;
 
     double frequency_;
     int no_command_timeout_msec;
@@ -175,6 +184,10 @@ class AntobotSafety : public rclcpp::Node
     bool auto_release = false;
     bool uss_front_enable = true;
     bool uss_back_enable = true;
+
+    bool bump_front_enable = true;
+    bool bump_back_enable = true;
+    bool uv_bump_interlock = false;
 
     /*
     float robot_lin_vel_cmd;
@@ -312,6 +325,8 @@ class AntobotSafety : public rclcpp::Node
             std_msgs::msg::Bool safe_operation_msg;
             safe_operation_msg.data = safe_operation;
             safe_operation_pub_->publish(safe_operation_msg);
+
+            publishUvSafeOperation();
 
             //t_lastSafetyStatusSent = clock();
 
@@ -592,6 +607,9 @@ class AntobotSafety : public rclcpp::Node
 
         if (cmd_vel_msg.linear.x > vel_scale)
             cmd_vel_msg.linear.x = vel_scale;
+        else if (cmd_vel_msg.linear.x < -vel_scale)
+            cmd_vel_msg.linear.x = -vel_scale;
+
 
         if (vel_scale > 0)
             RCLCPP_DEBUG(this->get_logger(), "SF010%d: Limiting linear velocity to %f", force_stop_type, vel_scale);
@@ -763,6 +781,7 @@ class AntobotSafety : public rclcpp::Node
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
+            uv_bump_interlock = false;
             force_stop_type = 0;
             t_release = clock();
 
@@ -774,16 +793,26 @@ class AntobotSafety : public rclcpp::Node
 
             lights_f_pub_->publish(lights_f_cmd);
             lights_b_pub_->publish(lights_b_cmd);
+            publishUvSafeOperation();
 
         }
         
     }
 
+    void publishUvSafeOperation()
+    {
+        std_msgs::msg::Bool uv_safe_operation_msg;
+        uv_safe_operation_msg.data = !uv_bump_interlock;
+        uv_safe_operation_pub_->publish(uv_safe_operation_msg);
+    }
+
     void bumpFrontCallback(const std_msgs::msg::Bool &msg)
     {
-        
-        if (msg.data)
+        if (bump_front_enable && msg.data)
         {
+
+            publishUvSafeOperation();
+
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -792,6 +821,7 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+                    uv_bump_interlock = true;
                     force_stop_bump = true;
                     force_stop_release = false;
                     force_stop_type = 9;
@@ -808,9 +838,11 @@ class AntobotSafety : public rclcpp::Node
 
     void bumpBackCallback(const std_msgs::msg::Bool &msg)
     {
-        
-        if (msg.data)
+        if (bump_back_enable && msg.data)
         {
+            
+            publishUvSafeOperation();
+
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -819,6 +851,7 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+                    uv_bump_interlock = true;
                     force_stop_bump = true;
                     force_stop_release = false;
                     force_stop_type = 10;
