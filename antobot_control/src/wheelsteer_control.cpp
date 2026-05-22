@@ -232,9 +232,14 @@ public:
 			"/antobot/control/wheelsteer/real_pos",
 			50);
 
+
 		// Wheel velocity command publisher
+		// pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
+		// 	"/antobridge/wheel_vel_cmd",
+		// 	10);
+
 		pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
-			"/antobridge/wheel_vel_cmd",
+			"/antobot/control/wheeldrive/wheel_vel_cmd",
 			10);
 
 		{
