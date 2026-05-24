@@ -740,7 +740,7 @@ class AntobotSafety : public rclcpp::Node
         if (uss_back_enable && uss_front_enable) {
             uint16_t tmp[USS_NUM] = {
                 200, uss_avg[1], 200, 200,
-                200, uss_avg[4], 200, 200
+                200, uss_avg[5], 200, 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
@@ -754,7 +754,7 @@ class AntobotSafety : public rclcpp::Node
         } else if (uss_back_enable) {
             uint16_t tmp[USS_NUM] = {
                 200, 200, 200, 200,
-                200, uss_avg[4], 200, 200
+                200, uss_avg[5], 200, 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
