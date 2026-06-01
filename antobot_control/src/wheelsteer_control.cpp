@@ -16,6 +16,7 @@
 
 // Common control base
 #include "antobot_control/anto_control_base.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 using std::placeholders::_1;
 
@@ -59,7 +60,7 @@ namespace
 	constexpr double STEER_MAX_DEG = +90.0;
 
 	// control freq [Hz]
-	constexpr double CONTROL_FREQUENCY_HZ = 30.0;
+	constexpr double CONTROL_FREQUENCY_HZ = 60.0;
 
 	// Tolerance for checking turn position [deg]
 	constexpr double TRANSITION_TOL_DEG = 2.0;
@@ -241,6 +242,14 @@ public:
 		pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
 			"/antobot/control/wheeldrive/wheel_vel_cmd",
 			10);
+
+		lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/lights_f",
+            10);
+
+        lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/lights_b",
+            10);
 
 		{
 			// Initial steering command for the default mode
@@ -762,6 +771,13 @@ private:
 			antobot_platform_msgs::msg::Float32Array wheel_cmd;
 			wheel_cmd.data.resize(wheel_count_, 0.0f);
 			pub_wheel_vel_cmd_->publish(wheel_cmd);
+
+			std_msgs::msg::Bool lights_f_msg;
+            std_msgs::msg::Bool lights_b_msg;
+            lights_f_msg.data = false;
+            lights_b_msg.data = false;
+            lights_f_pub_->publish(lights_f_msg);
+            lights_b_pub_->publish(lights_b_msg);
 			return;
 		}
 
@@ -771,6 +787,33 @@ private:
 		const double vx  = cmd.linear;    // smoothed vx [m/s], forward positive
 		const double vy  = cmd.linear_y;  // smoothed vy [m/s], left positive
 		const double w   = cmd.angular;   // smoothed omega [rad/s], CCW positive
+
+
+		std_msgs::msg::Bool lights_f_msg;
+        std_msgs::msg::Bool lights_b_msg;
+
+        const double light_deadband = 0.01;
+
+        if (vx > light_deadband) {
+    // forward
+            lights_f_msg.data = true;
+            lights_b_msg.data = false;
+        } else if (vx < -light_deadband) {
+    // backward
+            lights_f_msg.data = false;
+            lights_b_msg.data = true;
+        } else if (std::fabs(w) > light_deadband || std::fabs(vy) > light_deadband) {
+    // rotation or crab sideways: both lights on
+            lights_f_msg.data = true;
+            lights_b_msg.data = true;
+        } else {
+    // stop
+            lights_f_msg.data = false;
+            lights_b_msg.data = false;
+        }
+
+        lights_f_pub_->publish(lights_f_msg);
+        lights_b_pub_->publish(lights_b_msg);
 
 		antobot_platform_msgs::msg::Float32Array wheel_cmd;
 		wheel_cmd.data.resize(wheel_count_, 0.0f);
@@ -887,6 +930,8 @@ private:
 	rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cmd_pos_raw_pub_;
 	rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr real_pos_pub_;
 	rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr pub_wheel_vel_cmd_;
+	rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
 
 	// Periodic control loop timer
 	rclcpp::TimerBase::SharedPtr control_timer_;
