@@ -63,7 +63,7 @@ namespace
 	constexpr double CONTROL_FREQUENCY_HZ = 60.0;
 
 	// Tolerance for checking turn position [deg]
-	constexpr double TRANSITION_TOL_DEG = 2.0;
+	constexpr double TRANSITION_TOL_DEG = 5.0;
 
 	// steady to active
 	constexpr bool   ENABLE_STEADY_HOLD = false;
@@ -750,14 +750,14 @@ private:
 	// ======================================================================
 	void velocity_smoother(double now_time_sec)
 	{
-		if (steer_state_ != ACTIVE) {
-			auto & st = getState();
-			st.smoothed_cmd.linear   = 0.0;
-			st.smoothed_cmd.linear_y = 0.0;
-			st.smoothed_cmd.angular  = 0.0;
-			st.clipped_cmd           = st.smoothed_cmd;
-			return;
-		}
+		// if (steer_state_ != ACTIVE) {
+		// 	auto & st = getState();
+		// 	st.smoothed_cmd.linear   = 0.0;
+		// 	st.smoothed_cmd.linear_y = 0.0;
+		// 	st.smoothed_cmd.angular  = 0.0;
+		// 	st.clipped_cmd           = st.smoothed_cmd;
+		// 	return;
+		// }
 		antobot_control::AntoControlBase::velocity_smoother(now_time_sec);
 	}
 
@@ -767,19 +767,19 @@ private:
 	void wheel_speed_compute() override
 	{
 		// If steering is still transitioning, force all wheel speeds to zero.
-		if (steer_state_ == TRANSITIONING) {
-			antobot_platform_msgs::msg::Float32Array wheel_cmd;
-			wheel_cmd.data.resize(wheel_count_, 0.0f);
-			pub_wheel_vel_cmd_->publish(wheel_cmd);
+		// if (steer_state_ == TRANSITIONING) {
+		// 	antobot_platform_msgs::msg::Float32Array wheel_cmd;
+		// 	wheel_cmd.data.resize(wheel_count_, 0.0f);
+		// 	pub_wheel_vel_cmd_->publish(wheel_cmd);
 
-			std_msgs::msg::Bool lights_f_msg;
-            std_msgs::msg::Bool lights_b_msg;
-            lights_f_msg.data = false;
-            lights_b_msg.data = false;
-            lights_f_pub_->publish(lights_f_msg);
-            lights_b_pub_->publish(lights_b_msg);
-			return;
-		}
+		// 	std_msgs::msg::Bool lights_f_msg;
+        //     std_msgs::msg::Bool lights_b_msg;
+        //     lights_f_msg.data = false;
+        //     lights_b_msg.data = false;
+        //     lights_f_pub_->publish(lights_f_msg);
+        //     lights_b_pub_->publish(lights_b_msg);
+		// 	return;
+		// }
 
 		// ACTIVE state: compute wheel speeds from smoothed command and current steering angles.
 		const auto & st  = getState();
