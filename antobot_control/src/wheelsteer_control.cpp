@@ -60,7 +60,7 @@ namespace
 	constexpr double STEER_MAX_DEG = +90.0;
 
 	// control freq [Hz]
-	constexpr double CONTROL_FREQUENCY_HZ = 60.0;
+	constexpr double CONTROL_FREQUENCY_HZ = 50.0;
 
 	// Tolerance for checking turn position [deg]
 	constexpr double TRANSITION_TOL_DEG = 5.0;
@@ -243,13 +243,12 @@ public:
 			"/antobot/control/wheeldrive/wheel_vel_cmd",
 			10);
 
-		// 这台U501装反了，所以对调红白灯话题，不提交
 		lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>(
-            "/antobridge/lights_b",
+            "/antobridge/lights_f",
             10);
 
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>(
-            "/antobridge/lights_f",
+            "/antobridge/lights_b",
             10);
 
 		{
@@ -537,34 +536,6 @@ private:
 				// invert ? 1 : 0, target_raw_deg, zero_offset_deg_[i]);
 		}
 
-		if(current_mode_ == CRAB)
-		{
-			const int steer_rf = 0;
-			const int steer_lf = 1;
-			const int steer_lr = 2;
-			const int steer_rr = 3;
-
-			const double front_left_angle  = logical_pos_deg_[steer_lf];
-			const double front_right_angle = logical_pos_deg_[steer_rf];
-			const double rear_left_angle   = logical_pos_deg_[steer_lr];
-			const double rear_right_angle  = logical_pos_deg_[steer_rr];
-
-			const double front_diff = std::fabs(front_left_angle - front_right_angle);
-			const double rear_diff  = std::fabs(rear_left_angle - rear_right_angle);
-
-			RCLCPP_INFO(
-				get_logger(),
-				"CRAB angles | front: LF=%.2f deg, RF=%.2f deg, diff=%.2f deg \n
-					| rear: LR=%.2f deg, RR=%.2f deg, diff=%.2f deg",
-				front_left_angle, front_right_angle, front_diff,
-				rear_left_angle, rear_right_angle, rear_diff
-			);
-
-			if(front_diff > 10 || rear_diff > 10)
-			{
-				RCLCPP_ERROR(get_logger(), "======= CRAB angles  ");
-			}
-		}
 		cmd_pos_raw_pub_->publish(raw_cmd);
 
 		// Update target angles for state machine and enter transitioning
@@ -629,9 +600,9 @@ private:
 				target_logical_angles,
 				/*use_preset_for_travel_modes=*/false);
 
-			if (steeringTargetChangedSignificantly(target_logical_angles)) {
-				publishSteeringTargets(target_logical_angles);
-			}
+			// if (steeringTargetChangedSignificantly(target_logical_angles)) {
+			publishSteeringTargets(target_logical_angles);
+			// }
 		}
 
 		velocity_smoother(now_sec);
