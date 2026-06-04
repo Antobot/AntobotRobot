@@ -349,10 +349,6 @@ private:
 				} else {
 					const double speed = std::hypot(vx, vy);
 
-					RCLCPP_INFO(
-						get_logger(),
-						"CRAB mode: vx=%.3f, vy=%.3f, speed=%.6f",
-						vx, vy, speed);
 
 					if (speed < EPS_V) {
 						// If no clear direction, use preset CRAB angle
@@ -758,6 +754,14 @@ private:
 		// 	st.clipped_cmd           = st.smoothed_cmd;
 		// 	return;
 		// }
+
+		// Make the joystick input more linear
+		double max_lin_speed = 1.3;
+		auto & state  = getState();
+		const auto & param = state.params;
+		state.raw_cmd.linear = state.raw_cmd.linear / max_lin_speed * param.max_linear;
+		state.raw_cmd.linear_y = state.raw_cmd.linear_y / max_lin_speed * param.max_linear;
+
 		antobot_control::AntoControlBase::velocity_smoother(now_time_sec);
 	}
 
