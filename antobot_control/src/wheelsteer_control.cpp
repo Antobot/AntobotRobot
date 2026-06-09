@@ -16,6 +16,7 @@
 
 // Common control base
 #include "antobot_control/anto_control_base.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 using std::placeholders::_1;
 
@@ -59,10 +60,10 @@ namespace
 	constexpr double STEER_MAX_DEG = +90.0;
 
 	// control freq [Hz]
-	constexpr double CONTROL_FREQUENCY_HZ = 30.0;
+	constexpr double CONTROL_FREQUENCY_HZ = 50.0;
 
 	// Tolerance for checking turn position [deg]
-	constexpr double TRANSITION_TOL_DEG = 2.0;
+	constexpr double TRANSITION_TOL_DEG = 5.0;
 
 	// steady to active
 	constexpr bool   ENABLE_STEADY_HOLD = false;
@@ -232,10 +233,23 @@ public:
 			"/antobot/control/wheelsteer/real_pos",
 			50);
 
+
 		// Wheel velocity command publisher
+		// pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
+		// 	"/antobridge/wheel_vel_cmd",
+		// 	10);
+
 		pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
-			"/antobridge/wheel_vel_cmd",
+			"/antobot/control/wheeldrive/wheel_vel_cmd",
 			10);
+
+		lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/lights_f",
+            10);
+
+        lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/lights_b",
+            10);
 
 		{
 			// Initial steering command for the default mode
@@ -335,10 +349,6 @@ private:
 				} else {
 					const double speed = std::hypot(vx, vy);
 
-					RCLCPP_INFO(
-						get_logger(),
-						"CRAB mode: vx=%.3f, vy=%.3f, speed=%.6f",
-						vx, vy, speed);
 
 					if (speed < EPS_V) {
 						// If no clear direction, use preset CRAB angle
@@ -515,11 +525,11 @@ private:
 
 			raw_cmd.data[i] = target_raw_deg;
 			final_logical_targets_[i] = desired_logical_deg;
-			RCLCPP_INFO(
-				get_logger(),
-				"Wheel %d [Mode %d]: desired=%.2f (orig=%.2f, invert=%d) -> raw=%.2f (offset=%.2f)",
-				i + 1, current_mode_, desired_logical_deg, target_logical_angles[i],
-				invert ? 1 : 0, target_raw_deg, zero_offset_deg_[i]);
+			// RCLCPP_INFO(
+				// get_logger(),
+				// "Wheel %d [Mode %d]: desired=%.2f (orig=%.2f, invert=%d) -> raw=%.2f (offset=%.2f)",
+				// i + 1, current_mode_, desired_logical_deg, target_logical_angles[i],
+				// invert ? 1 : 0, target_raw_deg, zero_offset_deg_[i]);
 		}
 
 		cmd_pos_raw_pub_->publish(raw_cmd);
@@ -586,9 +596,9 @@ private:
 				target_logical_angles,
 				/*use_preset_for_travel_modes=*/false);
 
-			if (steeringTargetChangedSignificantly(target_logical_angles)) {
-				publishSteeringTargets(target_logical_angles);
-			}
+			// if (steeringTargetChangedSignificantly(target_logical_angles)) {
+			publishSteeringTargets(target_logical_angles);
+			// }
 		}
 
 		velocity_smoother(now_sec);
@@ -736,14 +746,22 @@ private:
 	// ======================================================================
 	void velocity_smoother(double now_time_sec)
 	{
-		if (steer_state_ != ACTIVE) {
-			auto & st = getState();
-			st.smoothed_cmd.linear   = 0.0;
-			st.smoothed_cmd.linear_y = 0.0;
-			st.smoothed_cmd.angular  = 0.0;
-			st.clipped_cmd           = st.smoothed_cmd;
-			return;
-		}
+		// if (steer_state_ != ACTIVE) {
+		// 	auto & st = getState();
+		// 	st.smoothed_cmd.linear   = 0.0;
+		// 	st.smoothed_cmd.linear_y = 0.0;
+		// 	st.smoothed_cmd.angular  = 0.0;
+		// 	st.clipped_cmd           = st.smoothed_cmd;
+		// 	return;
+		// }
+
+		// Make the joystick input more linear
+		double max_lin_speed = 1.3;
+		auto & state  = getState();
+		const auto & param = state.params;
+		state.raw_cmd.linear = state.raw_cmd.linear / max_lin_speed * param.max_linear;
+		state.raw_cmd.linear_y = state.raw_cmd.linear_y / max_lin_speed * param.max_linear;
+
 		antobot_control::AntoControlBase::velocity_smoother(now_time_sec);
 	}
 
@@ -753,12 +771,19 @@ private:
 	void wheel_speed_compute() override
 	{
 		// If steering is still transitioning, force all wheel speeds to zero.
-		if (steer_state_ == TRANSITIONING) {
-			antobot_platform_msgs::msg::Float32Array wheel_cmd;
-			wheel_cmd.data.resize(wheel_count_, 0.0f);
-			pub_wheel_vel_cmd_->publish(wheel_cmd);
-			return;
-		}
+		// if (steer_state_ == TRANSITIONING) {
+		// 	antobot_platform_msgs::msg::Float32Array wheel_cmd;
+		// 	wheel_cmd.data.resize(wheel_count_, 0.0f);
+		// 	pub_wheel_vel_cmd_->publish(wheel_cmd);
+
+		// 	std_msgs::msg::Bool lights_f_msg;
+        //     std_msgs::msg::Bool lights_b_msg;
+        //     lights_f_msg.data = false;
+        //     lights_b_msg.data = false;
+        //     lights_f_pub_->publish(lights_f_msg);
+        //     lights_b_pub_->publish(lights_b_msg);
+		// 	return;
+		// }
 
 		// ACTIVE state: compute wheel speeds from smoothed command and current steering angles.
 		const auto & st  = getState();
@@ -766,6 +791,33 @@ private:
 		const double vx  = cmd.linear;    // smoothed vx [m/s], forward positive
 		const double vy  = cmd.linear_y;  // smoothed vy [m/s], left positive
 		const double w   = cmd.angular;   // smoothed omega [rad/s], CCW positive
+
+
+		std_msgs::msg::Bool lights_f_msg;
+        std_msgs::msg::Bool lights_b_msg;
+
+        const double light_deadband = 0.01;
+
+        if (vx > light_deadband) {
+    // forward
+            lights_f_msg.data = true;
+            lights_b_msg.data = false;
+        } else if (vx < -light_deadband) {
+    // backward
+            lights_f_msg.data = false;
+            lights_b_msg.data = true;
+        } else if (std::fabs(w) > light_deadband || std::fabs(vy) > light_deadband) {
+    // rotation or crab sideways: both lights on
+            lights_f_msg.data = true;
+            lights_b_msg.data = true;
+        } else {
+    // stop
+            lights_f_msg.data = false;
+            lights_b_msg.data = false;
+        }
+
+        lights_f_pub_->publish(lights_f_msg);
+        lights_b_pub_->publish(lights_b_msg);
 
 		antobot_platform_msgs::msg::Float32Array wheel_cmd;
 		wheel_cmd.data.resize(wheel_count_, 0.0f);
@@ -882,6 +934,8 @@ private:
 	rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cmd_pos_raw_pub_;
 	rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr real_pos_pub_;
 	rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr pub_wheel_vel_cmd_;
+	rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
 
 	// Periodic control loop timer
 	rclcpp::TimerBase::SharedPtr control_timer_;
