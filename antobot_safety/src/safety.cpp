@@ -187,6 +187,7 @@ class AntobotSafety : public rclcpp::Node
 
     bool bump_front_enable = true;
     bool bump_back_enable = true;
+    bool uv_uss_interlock = false;
     bool uv_bump_interlock = false;
 
     /*
@@ -230,6 +231,7 @@ class AntobotSafety : public rclcpp::Node
                         
                         fs_warn_msg_sent = false;
                         fs_err_msg_sent = false;
+                        setUvUssInterlock(true);
                     }
                     else
                     {
@@ -245,6 +247,7 @@ class AntobotSafety : public rclcpp::Node
                     time_force_stop = std::chrono::steady_clock::now();
                     t_safety_light = clock();
                     time_safety_light = std::chrono::steady_clock::now();
+                    setUvUssInterlock(true);
                 }
             }
         }
@@ -559,7 +562,7 @@ class AntobotSafety : public rclcpp::Node
         /* Automatically releases the robot from its force stopped state if the previously 
         detected object is no longer being detected */
         
-        if (force_stop && auto_release)
+        if (force_stop && auto_release && !force_stop_bump)
         {
             // First, check how the robot is moving
             int cmd_vel_type = getCmdVelType();
@@ -579,6 +582,7 @@ class AntobotSafety : public rclcpp::Node
                         // Force stop release if the time threshold has passed
                         force_stop = false;
                         force_stop_release = true;
+                        setUvUssInterlock(false);
                         force_stop_type = 0;
                         t_release = clock();
                     }
@@ -786,7 +790,8 @@ class AntobotSafety : public rclcpp::Node
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
-            uv_bump_interlock = false;
+            setUvUssInterlock(false);
+            setUvBumpInterlock(false);
             force_stop_type = 0;
             t_release = clock();
 
@@ -798,16 +803,27 @@ class AntobotSafety : public rclcpp::Node
 
             lights_f_pub_->publish(lights_f_cmd);
             lights_b_pub_->publish(lights_b_cmd);
-            publishUvSafeOperation();
 
         }
         
     }
 
+    void setUvUssInterlock(bool interlocked)
+    {
+        uv_uss_interlock = interlocked;
+        publishUvSafeOperation();
+    }
+
+    void setUvBumpInterlock(bool interlocked)
+    {
+        uv_bump_interlock = interlocked;
+        publishUvSafeOperation();
+    }
+
     void publishUvSafeOperation()
     {
         std_msgs::msg::Bool uv_safe_operation_msg;
-        uv_safe_operation_msg.data = !uv_bump_interlock;
+        uv_safe_operation_msg.data = !(uv_uss_interlock || uv_bump_interlock);
         uv_safe_operation_pub_->publish(uv_safe_operation_msg);
     }
 
@@ -815,9 +831,6 @@ class AntobotSafety : public rclcpp::Node
     {
         if (bump_front_enable && msg.data)
         {
-
-            publishUvSafeOperation();
-
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -826,7 +839,7 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
-                    uv_bump_interlock = true;
+                    setUvBumpInterlock(true);
                     force_stop_bump = true;
                     force_stop_release = false;
                     force_stop_type = 9;
@@ -838,16 +851,12 @@ class AntobotSafety : public rclcpp::Node
                 }
             }
         }
-        
     }
 
     void bumpBackCallback(const std_msgs::msg::Bool &msg)
     {
         if (bump_back_enable && msg.data)
         {
-            
-            publishUvSafeOperation();
-
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -856,7 +865,7 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
-                    uv_bump_interlock = true;
+                    setUvBumpInterlock(true);
                     force_stop_bump = true;
                     force_stop_release = false;
                     force_stop_type = 10;
