@@ -32,6 +32,7 @@ class AntobotControl : public rclcpp::Node
         this->declare_parameter<std::vector<double>>("min_velocity", std::vector<double>{-0.5, -0.5});
         this->declare_parameter<std::vector<double>>("max_accel", std::vector<double>{0.2, 0.5});
         this->declare_parameter<std::vector<double>>("max_decel", std::vector<double>{-3.0, -3.0});
+        this->declare_parameter<std::vector<double>>("wheel_speed_correction", std::vector<double>{1.0, 1.0, 1.0, 1.0});
         this->declare_parameter<double>("frequency", 30.0);
         this->declare_parameter<double>("velocity_timeout", 0.15);
 
@@ -41,6 +42,7 @@ class AntobotControl : public rclcpp::Node
         min_velocities_ = this->get_parameter("min_velocity").as_double_array();
         max_accels_ = this->get_parameter("max_accel").as_double_array();
         max_decels_ = this->get_parameter("max_decel").as_double_array();
+        wheel_speed_corrections_ = this->get_parameter("wheel_speed_correction").as_double_array();
         frequency_ = this->get_parameter("frequency").as_double();
         velocity_timeout_ = this->get_parameter("velocity_timeout").as_double();
 
@@ -90,6 +92,7 @@ class AntobotControl : public rclcpp::Node
     // smooth
     rclcpp::Time last_command_time_;
     std::vector<double> max_velocities_, min_velocities_, max_accels_, max_decels_;
+    std::vector<double> wheel_speed_corrections_;
     double robot_lin_vel_cmd_last, robot_ang_vel_cmd_last;
 
     // Functions
@@ -190,6 +193,7 @@ class AntobotControl : public rclcpp::Node
         min_velocities_ = this->get_parameter("min_velocity").as_double_array();
         max_accels_ = this->get_parameter("max_accel").as_double_array();
         max_decels_ = this->get_parameter("max_decel").as_double_array();
+        wheel_speed_corrections_ = this->get_parameter("wheel_speed_correction").as_double_array();
 
         if (min_velocities_.size() != max_velocities_.size()) {
             throw std::runtime_error(
@@ -202,6 +206,13 @@ class AntobotControl : public rclcpp::Node
             throw std::runtime_error(
                 "Parameter validation failed: 'max_accel' and 'max_decel' must have the same size. "
                 "Got " + std::to_string(max_accels_.size()) + " and " + std::to_string(max_decels_.size()) + "."
+            );
+        }
+
+        if (wheel_speed_corrections_.size() != 4) {
+            throw std::runtime_error(
+                "Parameter validation failed: 'wheel_speed_correction' must have exactly 4 elements. "
+                "Got " + std::to_string(wheel_speed_corrections_.size()) + "."
             );
         }
 
@@ -262,10 +273,10 @@ class AntobotControl : public rclcpp::Node
 
         // TODO: Unit conversions (?)
 
-        wheel_vel_cmd.push_back((float)wheel_ang_vel_l);
-        wheel_vel_cmd.push_back((float)wheel_ang_vel_l);
-        wheel_vel_cmd.push_back((float)wheel_ang_vel_r);
-        wheel_vel_cmd.push_back((float)wheel_ang_vel_r);
+        wheel_vel_cmd.push_back(static_cast<float>(wheel_ang_vel_l * wheel_speed_corrections_[0]));
+        wheel_vel_cmd.push_back(static_cast<float>(wheel_ang_vel_l * wheel_speed_corrections_[1]));
+        wheel_vel_cmd.push_back(static_cast<float>(wheel_ang_vel_r * wheel_speed_corrections_[2]));
+        wheel_vel_cmd.push_back(static_cast<float>(wheel_ang_vel_r * wheel_speed_corrections_[3]));
 
     }
 

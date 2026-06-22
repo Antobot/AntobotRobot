@@ -424,6 +424,7 @@ class AntobotSafety : public rclcpp::Node
         {
             not_safe_f = true;
             force_stop_type = 2;
+            // RCLCPP_ERROR(this->get_logger(), "SF010%d: ussDistSafetyCheck_f - time_to_collision: %f; uss_dist_filt: %u", force_stop_type, time_to_collision, uss_dist_filt.data[1]);  //  Current error code indicates USS force stop, but could also be bump switch
             return not_safe_f;
         } 
 
@@ -471,6 +472,7 @@ class AntobotSafety : public rclcpp::Node
         {
             not_safe_b = true;
             force_stop_type = 6;
+            // RCLCPP_ERROR(this->get_logger(), "SF010%d: ussDistSafetyCheck_b - time_to_collision: %f; uss_dist_filt: %u", force_stop_type, time_to_collision, uss_dist_filt.data[5]);
             return not_safe_b;
         } 
 
@@ -565,10 +567,15 @@ class AntobotSafety : public rclcpp::Node
             // First, check how the robot is moving
             int cmd_vel_type = getCmdVelType();
             
+            // RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - cmd_vel_type: %d", force_stop_type, cmd_vel_type);
+            
             if (cmd_vel_type > 0)
             {     
+                // RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - uss_dist_filt: %u", force_stop_type, uss_dist_filt.data[cmd_vel_type - 1]);
+                
                 if (uss_dist_filt.data[cmd_vel_type - 1] > hard_dist_thresh)
                 {
+                    RCLCPP_INFO(this->get_logger(), "SF010%d: autoRelease - time: %f", force_stop_type, 30.0*(clock() - t_force_stop)/(float)CLOCKS_PER_SEC);
                     // Checks timer to re-start navigation (if safe)
                     if (30.0*(clock() - t_force_stop)/(float)CLOCKS_PER_SEC > fs_release_thresh)
                     {
@@ -597,9 +604,9 @@ class AntobotSafety : public rclcpp::Node
         cmd_vel_msg.linear.x = vel_scale * cmd_vel_msg.linear.x;
 
         if (vel_scale > 0)
-            RCLCPP_DEBUG(this->get_logger(), "SF010%d: Scaling linear velocity by %f", force_stop_type, vel_scale);
+            RCLCPP_INFO(this->get_logger(), "SF010%d: Scaling linear velocity by %f", force_stop_type, vel_scale);
         else
-            RCLCPP_INFO(this->get_logger(), "SF010%d: Force stop by USS!", force_stop_type);
+            RCLCPP_INFO(this->get_logger(), "SF010%d: scaleCmdVel - Force stop by USS!", force_stop_type);
 
         return vel_scale;  
     }
@@ -618,7 +625,7 @@ class AntobotSafety : public rclcpp::Node
         if (vel_scale > 0)
             RCLCPP_DEBUG(this->get_logger(), "SF010%d: Limiting linear velocity to %f", force_stop_type, vel_scale);
         else
-            RCLCPP_INFO(this->get_logger(), "SF010%d: Force stop by USS!", force_stop_type);
+            RCLCPP_INFO(this->get_logger(), "SF010%d: limitCmdVel - Force stop by USS!", force_stop_type);
 
         return vel_scale;
     }
@@ -711,7 +718,6 @@ class AntobotSafety : public rclcpp::Node
         static int buf_idx = 0;
         static int buf_cnt = 0;
 
-        // 移除最旧帧
         if (buf_cnt == WIN_SIZE) {
             for (int i = 0; i < USS_NUM; i++) {
                 uss_sum[i] -= uss_buf[buf_idx][i];
@@ -720,7 +726,6 @@ class AntobotSafety : public rclcpp::Node
             buf_cnt++;
         }
 
-        // 写入新帧
         for (int i = 0; i < USS_NUM; i++) {
             uss_buf[buf_idx][i] = msg.data[i];
             uss_sum[i] += msg.data[i];
@@ -739,7 +744,7 @@ class AntobotSafety : public rclcpp::Node
         if (uss_back_enable && uss_front_enable) {
             uint16_t tmp[USS_NUM] = {
                 200, uss_avg[1], 200, 200,
-                200, uss_avg[4], 200, 200
+                200, uss_avg[5], 200, 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
@@ -753,7 +758,7 @@ class AntobotSafety : public rclcpp::Node
         } else if (uss_back_enable) {
             uint16_t tmp[USS_NUM] = {
                 200, 200, 200, 200,
-                200, uss_avg[4], 200, 200
+                200, uss_avg[5], 200, 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
