@@ -33,11 +33,13 @@ namespace
 	// Wheel radius [m]
 	constexpr double WHEEL_RADIUS_M = 0.203;
 
+    constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
 	// Base angle for SPOTTURN (deg), other wheels derived from this
-	constexpr double SPOTTURN_BASE_DEG = 46.42; // RF1, LR3
-
+    constexpr double SPOTTURN_BASE_DEG =
+        std::atan(WHEEL_BASE_M / TRACK_WIDTH_M) * RAD_TO_DEG; // RF1, LR3
 	// Base angle for LOCK (deg), other wheels derived from this
-	constexpr double LOCK_BASE_DEG     = 45.0; // LF2, RR4
+    constexpr double LOCK_BASE_DEG =
+        std::atan(WHEEL_BASE_M / TRACK_WIDTH_M) * RAD_TO_DEG; // LF2, RR4
 
 	// Default steering angle for CRAB when no clear direction or on mode entry [deg]
 	constexpr double CRAB_INIT_ANGLE_DEG = 0.0;
@@ -52,10 +54,10 @@ namespace
 	// Threshold for deciding if a new steering target is significantly different [deg]
 	constexpr double STEER_RETARGET_TOL_DEG = 2.0;
 
-	constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+
 
 	// Mechanical limit for multi-turn steering (logical angle) [deg]
-	constexpr double STEER_MIN_DEG = -90.0;
+	constexpr double STEER_MIN_DEG = -89.0;
 	constexpr double STEER_MAX_DEG = +90.0;
 
 	// control freq [Hz]
@@ -94,7 +96,7 @@ namespace
 
 	// Steering array order (logical_pos_deg_ / drive_inverted_ / target_logical_angles_ etc.)
 	// "index in steering arrays" -> "physical wheel index"
-	// Default: 0=RF, 1=LF, 2=LR, 3=RR (your current steering convention)
+	// Default: 0=RF, 1=LF, 2=LR, 3=RR
 	constexpr std::array<int, 4> STEER_INDEX_TO_PHYS = {
 		PHYS_RF, // steering index 0
 		PHYS_LF, // steering index 1
@@ -175,10 +177,10 @@ public:
 		params.wheel_radius         = WHEEL_RADIUS_M;
 		params.control_frequency_hz = CONTROL_FREQUENCY_HZ;
 		params.velocity_timeout_sec = 0.1;
-		params.max_linear           = 0.2;
-		params.min_linear           = -0.2;
-		params.max_angular          = 0.2;
-		params.min_angular          = -0.2;
+		params.max_linear           = 0.5;
+		params.min_linear           = -0.5;
+		params.max_angular          = 0.5;
+		params.min_angular          = -0.5;
 		params.max_linear_accel     = 0.1;
 		params.max_linear_decel     = -3.0;
 		params.max_angular_accel    = 0.1;
@@ -335,10 +337,10 @@ private:
 				} else {
 					const double speed = std::hypot(vx, vy);
 
-					RCLCPP_INFO(
-						get_logger(),
-						"CRAB mode: vx=%.3f, vy=%.3f, speed=%.6f",
-						vx, vy, speed);
+					// RCLCPP_INFO(
+					// 	get_logger(),
+					// 	"CRAB mode: vx=%.3f, vy=%.3f, speed=%.6f",
+					// 	vx, vy, speed);
 
 					if (speed < EPS_V) {
 						// If no clear direction, use preset CRAB angle
@@ -527,7 +529,12 @@ private:
 		// Update target angles for state machine and enter transitioning
 		target_logical_angles_ = final_logical_targets_;
 		has_target_ = true;
-		steer_state_ = TRANSITIONING;
+		if (current_mode_ == CRAB) {
+			steer_state_ = ACTIVE;
+			//last_active_time_ = this->get_clock()->now();
+		} else {
+			steer_state_ = TRANSITIONING;
+		}
 	}
 
 	// ======================================================
@@ -669,8 +676,7 @@ private:
             }
 
             double diff = std::fabs(max_angle - min_angle);
-
-            if (diff > 5.0) {
+            if (diff > 8.0) {
                 steer_state_ = TRANSITIONING;
 
                 RCLCPP_WARN(
@@ -680,6 +686,8 @@ private:
                 );
             }
         }
+
+
 	}
 
 	// ======================================================
@@ -815,16 +823,6 @@ private:
 				omega_wheel = -omega_wheel;
 			}
 
-			// RCLCPP_INFO(
-			// 	this->get_logger(),
-			// 	"Wheel %d (phys %d, steer %d): vx=%.3f vy=%.3f w=%.3f | "
-			// 	"x_i=%.3f y_i=%.3f | theta_deg=%.2f ex=%.3f ey=%.3f | "
-			// 	"vix=%.3f viy=%.3f | v_long=%.3f inv=%d -> omega=%.3f",
-			// 	drive_idx, phys, steer_idx,
-			// 	vx, vy, w, x_i, y_i,
-			// 	theta_deg, ex, ey, vix, viy,
-			// 	v_long, drive_inverted_[steer_idx] ? 1 : 0, omega_wheel
-			// );
             omega_wheel = -omega_wheel;
 
 			// wheel_cmd uses drive / bridge order
@@ -832,6 +830,7 @@ private:
 		}
 
 		pub_wheel_vel_cmd_->publish(wheel_cmd);
+
 	}
 
 	// ======================================================================
