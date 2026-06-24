@@ -180,8 +180,8 @@ public:
 		params.wheel_radius         = WHEEL_RADIUS_M;
 		params.control_frequency_hz = CONTROL_FREQUENCY_HZ;
 		params.velocity_timeout_sec = 0.1;
-		params.max_linear           = 0.2;
-		params.min_linear           = -0.2;
+		params.max_linear           = 1.3;
+		params.min_linear           = -1.3;
 		params.max_angular          = 0.2;
 		params.min_angular          = -0.2;
 		params.max_linear_accel     = 0.1;
@@ -602,6 +602,11 @@ private:
 			msg->angular.z,  // omega
 			now_sec);
 
+		auto & state = getState();
+		const double max_speed = std::max(std::fabs(msg->linear.x), std::fabs(msg->linear.y));
+		state.params.max_linear = max_speed;
+		state.params.min_linear = -max_speed;
+
 		// For CRAB/COUNTERPHASE update steering targets based on current velocity command.
 		if (current_mode_ == CRAB || current_mode_ == COUNTERPHASE) {
 
@@ -615,7 +620,7 @@ private:
 			// }
 		}
 
-		velocity_smoother(now_sec);
+		antobot_control::AntoControlBase::velocity_smoother(now_sec);
 	}
 
 
@@ -783,30 +788,6 @@ private:
 
 		zero_offset_deg_[idx] = raw_pos_deg_[idx];
 		RCLCPP_INFO(get_logger(), "Set zero W%d: offset=%.2f (multi-turn raw)", wheel_id, zero_offset_deg_[idx]);
-	}
-
-	// ======================================================================
-	// wrapper velocity_smoother to start smoothing only when wheels can move
-	// ======================================================================
-	void velocity_smoother(double now_time_sec)
-	{
-		// if (steer_state_ != ACTIVE) {
-		// 	auto & st = getState();
-		// 	st.smoothed_cmd.linear   = 0.0;
-		// 	st.smoothed_cmd.linear_y = 0.0;
-		// 	st.smoothed_cmd.angular  = 0.0;
-		// 	st.clipped_cmd           = st.smoothed_cmd;
-		// 	return;
-		// }
-
-		// Make the joystick input more linear
-		double max_lin_speed = 1.3;
-		auto & state  = getState();
-		const auto & param = state.params;
-		state.raw_cmd.linear = state.raw_cmd.linear / max_lin_speed * param.max_linear;
-		state.raw_cmd.linear_y = state.raw_cmd.linear_y / max_lin_speed * param.max_linear;
-
-		antobot_control::AntoControlBase::velocity_smoother(now_time_sec);
 	}
 
 	// ======================================================================
