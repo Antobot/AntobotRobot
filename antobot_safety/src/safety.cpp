@@ -14,6 +14,9 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
+
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
+
 using namespace std::chrono_literals;
 using std::placeholders::_1;
 
@@ -22,7 +25,7 @@ using std::placeholders::_1;
 class AntobotSafety : public rclcpp::Node
 {
   public:
-    AntobotSafety() : Node("antobot_safety"), count_(0)
+    AntobotSafety() : Node("antobot_safety"), count_(0)   // antSafety
     {
 
         sub_safety_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/safety/cmd_vel", 10,
@@ -47,6 +50,16 @@ class AntobotSafety : public rclcpp::Node
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
         uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
+
+
+        auto status_qos = rclcpp::QoS(1).reliable().transient_local();
+
+        uss_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/uss_enable/status", status_qos);
+
+        bump_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/bump_enable/status", status_qos);
+
+
+
         // Initialising uss_dist_filt with fake data
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i=0; i<8; i++)
@@ -83,6 +96,9 @@ class AntobotSafety : public rclcpp::Node
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
+        dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
+
+
         RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
         RCLCPP_INFO_STREAM(this->get_logger(), "    frequency:" << frequency_);
         RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
@@ -109,6 +125,13 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uv_safe_operation_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
+
+   rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr uss_enable_status_pub_;
+
+   rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr bump_enable_status_pub_;
+
+
+
     
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_safety_cmd_vel_;
     rclcpp::Subscription<antobot_platform_msgs::msg::UInt16Array>::SharedPtr sub_uss_dist_;
@@ -167,6 +190,8 @@ class AntobotSafety : public rclcpp::Node
 
     antobot_platform_msgs::msg::UInt16Array uss_dist_filt;
 
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dynamic_params_handler_;
+
 
     std::string robot_role;
     int safety_level;
@@ -203,6 +228,131 @@ class AntobotSafety : public rclcpp::Node
     
 
     // Functions
+    rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(const std::vector<rclcpp::Parameter> & parameters)
+{
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+
+    // 使用临时值，避免部分参数已经修改后，
+    // 后面的参数才发现类型错误。
+    bool next_uss_front_enable = uss_front_enable;
+    bool next_uss_back_enable = uss_back_enable;
+    bool next_bump_front_enable = bump_front_enable;
+    bool next_bump_back_enable = bump_back_enable;
+
+    // bool changed = false;
+
+    for (const auto & parameter : parameters)
+    {
+        const auto & name =
+            parameter.get_name();
+
+        const bool managed_parameter =
+            name == "uss_front_enable" ||
+            name == "uss_back_enable" ||
+            name == "bump_front_enable" ||
+            name == "bump_back_enable";
+
+        // 其他参数交给ROS 2正常处理
+        if (!managed_parameter)
+        {
+            continue;
+        }
+
+        // 四个参数必须是Bool
+        if (parameter.get_type() !=
+            rclcpp::ParameterType::PARAMETER_BOOL)
+        {
+            result.successful = false;
+            result.reason = name + " must be bool";
+            return result;
+        }
+
+        const bool value =
+            parameter.as_bool();
+
+        if (name == "uss_front_enable")
+        {
+            next_uss_front_enable = value;
+        }
+        else if (name == "uss_back_enable")
+        {
+            next_uss_back_enable = value;
+        }
+        else if (name == "bump_front_enable")
+        {
+            next_bump_front_enable = value;
+        }
+        else if (name == "bump_back_enable")
+        {
+            next_bump_back_enable = value;
+        }
+
+        // changed = true;
+    }
+
+    const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable;
+
+    const bool bump_changed = next_bump_front_enable != bump_front_enable || next_bump_back_enable != bump_back_enable;
+
+    // 所有参数验证通过后，再统一应用
+    uss_front_enable = next_uss_front_enable;
+    uss_back_enable = next_uss_back_enable;
+    bump_front_enable = next_bump_front_enable;
+    bump_back_enable = next_bump_back_enable;
+
+    if (uss_changed)
+       {
+            publishUssEnableStatus();
+       }
+
+    if (bump_changed)
+       {
+            publishBumpEnableStatus();
+       }
+
+
+    if (uss_changed || bump_changed)
+       {
+            RCLCPP_INFO_STREAM(this->get_logger(),
+            "Dynamic safety parameters updated: "
+            << "uss_front_enable="
+            << uss_front_enable
+            << ", uss_back_enable="
+            << uss_back_enable
+            << ", bump_front_enable="
+            << bump_front_enable
+            << ", bump_back_enable="
+            << bump_back_enable);
+        }
+
+
+    return result;
+}
+
+
+    void publishUssEnableStatus()
+{
+    antobot_platform_msgs::msg::UInt16Array msg;
+    msg.data = {static_cast<uint16_t>(uss_front_enable), static_cast<uint16_t>(uss_back_enable)};
+    uss_enable_status_pub_->publish(msg);
+}
+
+
+    void publishBumpEnableStatus()
+{
+    antobot_platform_msgs::msg::UInt16Array msg;
+    msg.data = {static_cast<uint16_t>(bump_front_enable), static_cast<uint16_t>(bump_back_enable)};
+    bump_enable_status_pub_->publish(msg);
+}
+
+
+
+   
+
+
+
+
     void update()
     {
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
