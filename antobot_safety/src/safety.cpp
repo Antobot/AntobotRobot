@@ -44,6 +44,10 @@ class AntobotSafety : public rclcpp::Node
         force_stop_type_pub_ = this->create_publisher<std_msgs::msg::Int8>("/antobot/safety/force_stop_type", 10);       // 0 - none (or release); 
                                                                                                                         // 1-8: USS
                                                                                                                             // 1 - front left; 2 - front; 3 - front right; 4 - right; 
+        bump_front_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_front_webui", 10);
+
+        bump_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_back_webui", 10);
+        
                                                                                                                             // 5 - back right; 6 - back; 7 - back left; 8 - left;
                                                                                                                         // 9: front bump stop; 10: back bump stop
         safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/safe_operation", 10);
@@ -57,6 +61,8 @@ class AntobotSafety : public rclcpp::Node
         uss_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/uss_enable/status", status_qos);
 
         bump_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/bump_enable/status", status_qos);
+
+        bump_webui_timer_ = this->create_wall_timer(1s, std::bind(&AntobotSafety::publishBumpWebuiStatus, this));
 
 
 
@@ -139,6 +145,9 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
 
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
+
     
     size_t count_;
 
@@ -192,6 +201,7 @@ class AntobotSafety : public rclcpp::Node
 
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dynamic_params_handler_;
 
+    rclcpp::TimerBase::SharedPtr bump_webui_timer_;
 
     std::string robot_role;
     int safety_level;
@@ -214,6 +224,9 @@ class AntobotSafety : public rclcpp::Node
     bool bump_back_enable = true;
     bool uv_uss_interlock = false;
     bool uv_bump_interlock = false;
+
+    bool bump_front_webui_state_{false};
+    bool bump_back_webui_state_{false};
 
     /*
     float robot_lin_vel_cmd;
@@ -348,7 +361,17 @@ class AntobotSafety : public rclcpp::Node
 
 
 
-   
+   void publishBumpWebuiStatus()
+{
+    std_msgs::msg::Bool front_msg;
+    std_msgs::msg::Bool back_msg;
+
+    front_msg.data = bump_front_webui_state_;
+    back_msg.data = bump_back_webui_state_;
+
+    bump_front_webui_pub_->publish(front_msg);
+    bump_back_webui_pub_->publish(back_msg);
+}
 
 
 
@@ -940,6 +963,13 @@ class AntobotSafety : public rclcpp::Node
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
+
+            bump_front_webui_state_ = false;
+            bump_back_webui_state_ = false;
+
+            publishBumpWebuiStatus();
+
+
             setUvUssInterlock(false);
             setUvBumpInterlock(false);
             force_stop_type = 0;
@@ -989,6 +1019,10 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+
+                    bump_front_webui_state_ = true;
+                    publishBumpWebuiStatus();
+
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
                     force_stop_release = false;
@@ -1015,6 +1049,10 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+
+                    bump_back_webui_state_ = true;
+                    publishBumpWebuiStatus();
+
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
                     force_stop_release = false;
