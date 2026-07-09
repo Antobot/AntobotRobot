@@ -56,13 +56,23 @@ class AntobotSafety : public rclcpp::Node
         uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
 
 
-        auto status_qos = rclcpp::QoS(1).reliable().transient_local();
+        auto status_qos = rclcpp::QoS(1).reliable();
 
         uss_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/uss_enable/status", status_qos);
 
         bump_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/bump_enable/status", status_qos);
 
-        bump_webui_timer_ = this->create_wall_timer(1s, std::bind(&AntobotSafety::publishBumpWebuiStatus, this));
+        uss_front_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+        "/antobridge/uss_front_webui",
+        10);
+
+        uss_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+        "/antobridge/uss_back_webui",
+        10);
+
+
+        bump_webui_timer_ = this->create_wall_timer(0.1s, std::bind(&AntobotSafety::publishBumpWebuiStatus, this));
+        uss_webui_timer_ =this->create_wall_timer(0.1s, std::bind(&AntobotSafety::publishUssWebuiStatus, this));
 
 
 
@@ -136,6 +146,9 @@ class AntobotSafety : public rclcpp::Node
 
    rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr bump_enable_status_pub_;
 
+   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_front_webui_pub_;
+   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_back_webui_pub_;
+
 
 
     
@@ -202,6 +215,7 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dynamic_params_handler_;
 
     rclcpp::TimerBase::SharedPtr bump_webui_timer_;
+    rclcpp::TimerBase::SharedPtr uss_webui_timer_;
 
     std::string robot_role;
     int safety_level;
@@ -227,6 +241,10 @@ class AntobotSafety : public rclcpp::Node
 
     bool bump_front_webui_state_{false};
     bool bump_back_webui_state_{false};
+
+
+    bool uss_front_webui_state_{false};
+    bool uss_back_webui_state_{false};
 
     /*
     float robot_lin_vel_cmd;
@@ -374,6 +392,19 @@ class AntobotSafety : public rclcpp::Node
 }
 
 
+   void publishUssWebuiStatus()
+{
+    std_msgs::msg::Bool front_msg;
+    std_msgs::msg::Bool back_msg;
+
+    front_msg.data = uss_front_webui_state_;
+    back_msg.data = uss_back_webui_state_;
+
+    uss_front_webui_pub_->publish(front_msg);
+    uss_back_webui_pub_->publish(back_msg);
+}
+
+
 
 
     void update()
@@ -397,6 +428,19 @@ class AntobotSafety : public rclcpp::Node
                     if (vel_out == 0)
                     {
                         force_stop = true;
+
+
+                        if (force_stop_type == 1 || force_stop_type == 2 || force_stop_type == 3)
+                        {
+                            uss_front_webui_state_ = true;
+                            publishUssWebuiStatus();
+                        }
+                        else if (force_stop_type == 5 || force_stop_type == 6 || force_stop_type == 7)
+                        {
+                            uss_back_webui_state_ = true;
+                            publishUssWebuiStatus();
+                        }
+
                         t_force_stop = clock();         // Sets when the robot force stopped
                         time_force_stop = std::chrono::steady_clock::now();
                         time_safety_light = std::chrono::steady_clock::now();
@@ -968,6 +1012,11 @@ class AntobotSafety : public rclcpp::Node
             bump_back_webui_state_ = false;
 
             publishBumpWebuiStatus();
+
+            uss_front_webui_state_ = false;
+            uss_back_webui_state_ = false;
+
+            publishUssWebuiStatus();
 
 
             setUvUssInterlock(false);
