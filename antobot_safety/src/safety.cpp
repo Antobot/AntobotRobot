@@ -44,10 +44,8 @@ class AntobotSafety : public rclcpp::Node
         force_stop_type_pub_ = this->create_publisher<std_msgs::msg::Int8>("/antobot/safety/force_stop_type", 10);       // 0 - none (or release); 
                                                                                                                         // 1-8: USS
                                                                                                                             // 1 - front left; 2 - front; 3 - front right; 4 - right; 
-        bump_front_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_front_webui", 10);
-
-        bump_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_back_webui", 10);
-        
+        // bump_front_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_front_webui", 10);
+        // bump_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_back_webui", 10);
                                                                                                                             // 5 - back right; 6 - back; 7 - back left; 8 - left;
                                                                                                                         // 9: front bump stop; 10: back bump stop
         safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/safe_operation", 10);
@@ -70,8 +68,10 @@ class AntobotSafety : public rclcpp::Node
         "/antobridge/uss_back_webui",
         10);
 
+        uss_bump_group_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+        "/uss_bump_group",
+        10);
 
-        bump_webui_timer_ = this->create_wall_timer(0.1s, std::bind(&AntobotSafety::publishBumpWebuiStatus, this));
         uss_webui_timer_ =this->create_wall_timer(0.1s, std::bind(&AntobotSafety::publishUssWebuiStatus, this));
 
 
@@ -148,6 +148,10 @@ class AntobotSafety : public rclcpp::Node
 
    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_front_webui_pub_;
    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_back_webui_pub_;
+   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_bump_group_pub_;
+
+   // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
+   // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
 
 
 
@@ -158,10 +162,6 @@ class AntobotSafety : public rclcpp::Node
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
 
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
-
-    
     size_t count_;
 
     std::vector<std::vector<int>> uss_dist_windows;
@@ -239,8 +239,11 @@ class AntobotSafety : public rclcpp::Node
     bool uv_uss_interlock = false;
     bool uv_bump_interlock = false;
 
-    bool bump_front_webui_state_{false};
-    bool bump_back_webui_state_{false};
+    bool bump_front_state_{false};
+    bool bump_back_state_{false};
+
+    // bool bump_front_webui_state_{false};
+    // bool bump_back_webui_state_{false};
 
 
     bool uss_front_webui_state_{false};
@@ -378,18 +381,18 @@ class AntobotSafety : public rclcpp::Node
 }
 
 
+//    void publishBumpWebuiStatus()
+// {
+//     std_msgs::msg::Bool front_msg;
+//     std_msgs::msg::Bool back_msg;
+//
+//     front_msg.data = bump_front_webui_state_;
+//     back_msg.data = bump_back_webui_state_;
+//
+//     bump_front_webui_pub_->publish(front_msg);
+//     bump_back_webui_pub_->publish(back_msg);
+// }
 
-   void publishBumpWebuiStatus()
-{
-    std_msgs::msg::Bool front_msg;
-    std_msgs::msg::Bool back_msg;
-
-    front_msg.data = bump_front_webui_state_;
-    back_msg.data = bump_back_webui_state_;
-
-    bump_front_webui_pub_->publish(front_msg);
-    bump_back_webui_pub_->publish(back_msg);
-}
 
 
    void publishUssWebuiStatus()
@@ -402,7 +405,16 @@ class AntobotSafety : public rclcpp::Node
 
     uss_front_webui_pub_->publish(front_msg);
     uss_back_webui_pub_->publish(back_msg);
+    publishUssBumpGroupStatus();
 }
+
+    void publishUssBumpGroupStatus()
+    {
+        std_msgs::msg::Bool group_msg;
+        group_msg.data = uss_front_webui_state_ || uss_back_webui_state_ ||
+            bump_front_state_ || bump_back_state_;
+        uss_bump_group_pub_->publish(group_msg);
+    }
 
 
 
@@ -1008,10 +1020,9 @@ class AntobotSafety : public rclcpp::Node
             force_stop_release = true;
             force_stop_bump = false;
 
-            bump_front_webui_state_ = false;
-            bump_back_webui_state_ = false;
-
-            publishBumpWebuiStatus();
+            // bump_front_webui_state_ = false;
+            // bump_back_webui_state_ = false;
+            // publishBumpWebuiStatus();
 
             uss_front_webui_state_ = false;
             uss_back_webui_state_ = false;
@@ -1058,10 +1069,13 @@ class AntobotSafety : public rclcpp::Node
 
     void bumpFrontCallback(const std_msgs::msg::Bool &msg)
     {
+        bump_front_state_ = msg.data;
+        publishUssBumpGroupStatus();
+
         if (bump_front_enable && msg.data)
         {   
-            bump_front_webui_state_ = true;
-            publishBumpWebuiStatus();
+            // bump_front_webui_state_ = true;
+            // publishBumpWebuiStatus();
 
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
@@ -1071,9 +1085,6 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
-
-                    bump_front_webui_state_ = true;
-                    publishBumpWebuiStatus();
 
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
@@ -1091,10 +1102,14 @@ class AntobotSafety : public rclcpp::Node
 
     void bumpBackCallback(const std_msgs::msg::Bool &msg)
     {
+        bump_back_state_ = msg.data;
+        publishUssBumpGroupStatus();
+
         if (bump_back_enable && msg.data)
         {
-            bump_back_webui_state_ = true;
-            publishBumpWebuiStatus();
+            // bump_back_webui_state_ = true;
+            // publishBumpWebuiStatus();
+
 
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
