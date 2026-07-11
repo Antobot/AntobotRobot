@@ -1024,6 +1024,9 @@ class AntobotSafety : public rclcpp::Node
             // bump_back_webui_state_ = false;
             // publishBumpWebuiStatus();
 
+            bump_front_state_ = false;
+            bump_back_state_ = false;
+
             uss_front_webui_state_ = false;
             uss_back_webui_state_ = false;
 
@@ -1069,9 +1072,6 @@ class AntobotSafety : public rclcpp::Node
 
     void bumpFrontCallback(const std_msgs::msg::Bool &msg)
     {
-        bump_front_state_ = msg.data;
-        publishUssBumpGroupStatus();
-
         if (bump_front_enable && msg.data)
         {   
             // bump_front_webui_state_ = true;
@@ -1085,6 +1085,9 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+                    
+                    bump_front_state_ = true;
+                    publishUssBumpGroupStatus();
 
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
@@ -1102,9 +1105,6 @@ class AntobotSafety : public rclcpp::Node
 
     void bumpBackCallback(const std_msgs::msg::Bool &msg)
     {
-        bump_back_state_ = msg.data;
-        publishUssBumpGroupStatus();
-
         if (bump_back_enable && msg.data)
         {
             // bump_back_webui_state_ = true;
@@ -1119,6 +1119,8 @@ class AntobotSafety : public rclcpp::Node
                 if (!force_stop)
                 {
                     force_stop = true;
+                    bump_back_state_ = true;
+                    publishUssBumpGroupStatus();
 
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
