@@ -126,8 +126,9 @@ class AntobotSafety : public rclcpp::Node
     float lin_vel_thresh = 0.11;
     float ang_vel_thresh = 1.0;             // The ratio of angular/linear velocity required to be considered turning
     float time_collision_thresh = 1.2;      // (seconds to collision) Threshold could depend on operation type?
-    int hard_dist_thresh = 75;          // (cm)
-    int hard_dist_thresh_diag = 30;          // (cm) - for diagonals 
+    int hard_dist_thresh = 75;              // (cm)
+    int hard_dist_thresh_side = 20;         // (cm) - for sides
+    int hard_dist_thresh_diag = 30;         // (cm) - for diagonals 
     bool not_safe = false;
     int force_stop_type = 0;
     bool force_stop_bump = false;
@@ -420,7 +421,11 @@ class AntobotSafety : public rclcpp::Node
         bool not_safe_f = false;
 
         time_to_collision = (float)(uss_dist_filt.data[1])/(100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's front
-        if ((time_to_collision < time_collision_thresh || uss_dist_filt.data[1] < hard_dist_thresh) && uss_dist_filt.data[1] < 200)
+        if (time_to_collision < time_collision_thresh || 
+            uss_dist_filt.data[1] < hard_dist_thresh && uss_dist_filt.data[1] > 0 ||
+            uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0||
+            uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0
+            )
         {
             not_safe_f = true;
             force_stop_type = 2;
@@ -468,7 +473,11 @@ class AntobotSafety : public rclcpp::Node
         bool not_safe_b = false;
 
         time_to_collision = (float)(uss_dist_filt.data[5])/(-100.0*linear_vel);      // Check time to reach nearest obstacle to the robot's back
-        if ((time_to_collision < time_collision_thresh || uss_dist_filt.data[5] < hard_dist_thresh) && uss_dist_filt.data[5] < 200)
+        if (time_to_collision < time_collision_thresh || 
+            uss_dist_filt.data[5] < hard_dist_thresh && uss_dist_filt.data[5] > 0 ||
+            uss_dist_filt.data[4] < hard_dist_thresh_side && uss_dist_filt.data[4] > 0 ||
+            uss_dist_filt.data[6] < hard_dist_thresh_side && uss_dist_filt.data[6] > 0
+            )
         {
             not_safe_b = true;
             force_stop_type = 6;
@@ -743,14 +752,14 @@ class AntobotSafety : public rclcpp::Node
 
         if (uss_back_enable && uss_front_enable) {
             uint16_t tmp[USS_NUM] = {
-                200, uss_avg[1], 200, 200,
-                200, uss_avg[5], 200, 200
+                uss_avg[0], uss_avg[1], uss_avg[2], 200,
+                uss_avg[4], uss_avg[5], uss_avg[6], 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
         } else if (uss_front_enable) {
             uint16_t tmp[USS_NUM] = {
-                200, uss_avg[1], 200, 200,
+                uss_avg[0], uss_avg[1], uss_avg[2], 200,
                 200, 200, 200, 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
@@ -758,7 +767,7 @@ class AntobotSafety : public rclcpp::Node
         } else if (uss_back_enable) {
             uint16_t tmp[USS_NUM] = {
                 200, 200, 200, 200,
-                200, uss_avg[5], 200, 200
+                uss_avg[4], uss_avg[5], uss_avg[6], 200
             };
             memcpy(uss_dist_ar, tmp, sizeof(tmp));
 
