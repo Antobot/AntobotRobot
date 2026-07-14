@@ -141,9 +141,13 @@ class robotMonitor(Node):
         # # # Determines whether the robot is currently stuck (i.e. commands are being sent, but the robot isn't moving)
         
         self.cmdVel_consistency_check()
-
+        
+        spot_turn_command = (abs(self.cmdVel_angular.z) > 0.1
+                             and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude)
+        
+        if spot_turn_command:
         # Stuck during spot turn (indicated by IMU)
-        if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
+        # if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
             self.robot_movement_distance()
             if self.cmdVel_spotTurn_consistency and abs(self.robot_yaw5) < 0.05 and self.robot_movement_dist5 < 1:    # if robot hasn't moved 3 degs or more in the last 5 seconds and less than 1m movedment in gps position
                 if self.stuck_spotTurn is not True:
@@ -156,7 +160,7 @@ class robotMonitor(Node):
             self.stuck_spotTurn = False
 
         # Stuck while moving straight(-ish)
-        if abs(self.cmdVel_linear.x) > 0.1 and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
+        if not spot_turn_command and abs(self.cmdVel_linear.x) > 0.1 and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
             self.robot_movement_distance()
             if self.cmdVel_straight_consistency and self.robot_movement_dist5 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
                 if self.stuck_straightMove is not True:

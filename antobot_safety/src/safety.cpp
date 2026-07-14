@@ -14,6 +14,8 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
+
 using namespace std::chrono_literals;
 using std::placeholders::_1;
 
@@ -39,12 +41,35 @@ public:
         force_stop_type_pub_ = this->create_publisher<std_msgs::msg::Int8>("/antobot/safety/force_stop_type", 10); // 0 - none (or release);
                                                                                                                    // 1-8: USS
                                                                                                                    // 1 - front left; 2 - front; 3 - front right; 4 - right;
-                                                                                                                   // 5 - back right; 6 - back; 7 - back left; 8 - left;
-                                                                                                                   // 9: front bump stop; 10: back bump stop
+        // bump_front_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_front_webui", 10);
+        // bump_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/bump_back_webui", 10);
+        // 5 - back right; 6 - back; 7 - back left; 8 - left;
+        // 9: front bump stop; 10: back bump stop
         safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/safe_operation", 10);
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
         uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
+
+        auto status_qos = rclcpp::QoS(1).reliable();
+
+        uss_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/uss_enable/status", status_qos);
+
+        bump_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/bump_enable/status", status_qos);
+
+        uss_front_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/uss_front_webui",
+            10);
+
+        uss_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/uss_back_webui",
+            10);
+
+        uss_bump_group_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/uss_bump_group",
+            10);
+
+        uss_webui_timer_ = this->create_wall_timer(0.1s, std::bind(&AntobotSafety::publishUssWebuiStatus, this));
+
         // Initialising uss_dist_filt with fake data
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_init;
         for (int i = 0; i < 8; i++)
@@ -88,6 +113,8 @@ public:
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
+        dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
+
         RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
         RCLCPP_INFO_STREAM(this->get_logger(), "    frequency:" << frequency_);
         RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
@@ -95,6 +122,9 @@ public:
         RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_recovery_thresh:" << hard_dist_thresh);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_stop_thresh:" << hard_dist_thresh_diag);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_stop_thresh_side:" << hard_dist_thresh_side);
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -112,6 +142,17 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uv_safe_operation_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
+
+    rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr uss_enable_status_pub_;
+
+    rclcpp::Publisher<antobot_platform_msgs::msg::UInt16Array>::SharedPtr bump_enable_status_pub_;
+
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_front_webui_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_back_webui_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_bump_group_pub_;
+
+    // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
+    // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_safety_cmd_vel_;
     rclcpp::Subscription<antobot_platform_msgs::msg::UInt16Array>::SharedPtr sub_uss_dist_;
@@ -169,6 +210,11 @@ private:
 
     antobot_platform_msgs::msg::UInt16Array uss_dist_filt;
 
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dynamic_params_handler_;
+
+    rclcpp::TimerBase::SharedPtr bump_webui_timer_;
+    rclcpp::TimerBase::SharedPtr uss_webui_timer_;
+
     std::string robot_role;
 
     bool safe_operation = true;
@@ -189,6 +235,15 @@ private:
     bool uv_uss_interlock = false;
     bool uv_bump_interlock = false;
 
+    bool bump_front_state_{false};
+    bool bump_back_state_{false};
+
+    // bool bump_front_webui_state_{false};
+    // bool bump_back_webui_state_{false};
+
+    bool uss_front_webui_state_{false};
+    bool uss_back_webui_state_{false};
+
     /*
     float robot_lin_vel_cmd;
     float robot_ang_vel_cmd;
@@ -201,6 +256,170 @@ private:
     geometry_msgs::msg::Point old_pos;*/
 
     // Functions
+    rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(const std::vector<rclcpp::Parameter> &parameters)
+    {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+
+        // 使用临时值，避免部分参数已经修改后，
+        // 后面的参数才发现类型错误。
+        bool next_uss_front_enable = uss_front_enable;
+        bool next_uss_back_enable = uss_back_enable;
+        bool next_bump_front_enable = bump_front_enable;
+        bool next_bump_back_enable = bump_back_enable;
+        int next_hard_dist_thresh = hard_dist_thresh;
+        int next_hard_dist_thresh_diag = hard_dist_thresh_diag;
+        int next_hard_dist_thresh_side = hard_dist_thresh_side;
+
+        // bool changed = false;
+
+        for (const auto &parameter : parameters)
+        {
+            const auto &name =
+                parameter.get_name();
+
+            if( name == "uss_front_enable" ||
+                name == "uss_back_enable" ||
+                name == "bump_front_enable" ||
+                name == "bump_back_enable")
+            {   // 参数必须是Bool
+                if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL)
+                {
+                    result.successful = false;
+                    result.reason = name + " must be bool";
+                    return result;
+                }
+
+                const bool value = parameter.as_bool();
+
+                if (name == "uss_front_enable")
+                    next_uss_front_enable = value;
+                else if (name == "uss_back_enable")
+                    next_uss_back_enable = value;
+                else if (name == "bump_front_enable")
+                    next_bump_front_enable = value;
+                else if (name == "bump_back_enable")
+                    next_bump_back_enable = value;
+            }
+            else if( name == "uss_recovery_thresh" ||
+                     name == "uss_stop_thresh" ||
+                     name == "uss_stop_thresh_side")
+            {   // 参数必须是Int
+                if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INT)
+                {
+                    result.successful = false;
+                    result.reason = name + " must be int";
+                    return result;
+                }
+                
+                const int value = parameter.as_int();
+
+                if (name == "uss_recovery_thresh")
+                    next_hard_dist_thresh = value;
+                else if (name == "uss_stop_thresh")
+                    next_hard_dist_thresh_diag = value;
+                else if (name == "uss_stop_thresh_side")
+                    next_hard_dist_thresh_side = value;
+            }
+            else
+            {   // 其他参数交给ROS 2正常处理
+                continue;
+            }
+        }
+
+        const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable;
+
+        const bool bump_changed = next_bump_front_enable != bump_front_enable || next_bump_back_enable != bump_back_enable;
+
+        // 所有参数验证通过后，再统一应用
+        uss_front_enable = next_uss_front_enable;
+        uss_back_enable = next_uss_back_enable;
+        bump_front_enable = next_bump_front_enable;
+        bump_back_enable = next_bump_back_enable;
+        hard_dist_thresh = next_hard_dist_thresh;
+        hard_dist_thresh_diag = next_hard_dist_thresh_diag;
+        hard_dist_thresh_side = next_hard_dist_thresh_side;
+
+        if (uss_changed)
+        {
+            publishUssEnableStatus();
+        }
+
+        if (bump_changed)
+        {
+            publishBumpEnableStatus();
+        }
+
+        if (uss_changed || bump_changed)
+        {
+            RCLCPP_INFO_STREAM(this->get_logger(),
+                "Dynamic safety parameters updated: "
+                    << "uss_front_enable="
+                    << uss_front_enable
+                    << ", uss_back_enable="
+                    << uss_back_enable
+                    << ", bump_front_enable="
+                    << bump_front_enable
+                    << ", bump_back_enable="
+                    << bump_back_enable
+                    << ", uss_recovery_thresh="
+                    << hard_dist_thresh
+                    << ", uss_stop_thresh="
+                    << hard_dist_thresh_diag
+                    << ", uss_stop_thresh_side="
+                    << hard_dist_thresh_side);
+        }
+
+        return result;
+    }
+
+    void publishUssEnableStatus()
+    {
+        antobot_platform_msgs::msg::UInt16Array msg;
+        msg.data = {static_cast<uint16_t>(uss_front_enable), static_cast<uint16_t>(uss_back_enable)};
+        uss_enable_status_pub_->publish(msg);
+    }
+
+    void publishBumpEnableStatus()
+    {
+        antobot_platform_msgs::msg::UInt16Array msg;
+        msg.data = {static_cast<uint16_t>(bump_front_enable), static_cast<uint16_t>(bump_back_enable)};
+        bump_enable_status_pub_->publish(msg);
+    }
+
+    // void publishBumpWebuiStatus()
+    // {
+    //     std_msgs::msg::Bool front_msg;
+    //     std_msgs::msg::Bool back_msg;
+
+    //     front_msg.data = bump_front_webui_state_;
+    //     back_msg.data = bump_back_webui_state_;
+
+    //     bump_front_webui_pub_->publish(front_msg);
+    //     bump_back_webui_pub_->publish(back_msg);
+    // }
+
+    void publishUssWebuiStatus()
+    {
+        std_msgs::msg::Bool front_msg;
+        std_msgs::msg::Bool back_msg;
+
+        front_msg.data = uss_front_webui_state_;
+        back_msg.data = uss_back_webui_state_;
+
+        uss_front_webui_pub_->publish(front_msg);
+        uss_back_webui_pub_->publish(back_msg);
+        publishUssBumpGroupStatus();
+    }
+
+    void publishUssBumpGroupStatus()
+    {
+        std_msgs::msg::Bool group_msg;
+        group_msg.data = uss_front_webui_state_ || uss_back_webui_state_ ||
+                         bump_front_state_ || bump_back_state_;
+        uss_bump_group_pub_->publish(group_msg);
+    }
+
     void update()
     {
         /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
@@ -222,6 +441,18 @@ private:
                     if (vel_out == 0)
                     {
                         force_stop = true;
+
+                        if (force_stop_type == 1 || force_stop_type == 2 || force_stop_type == 3)
+                        {
+                            uss_front_webui_state_ = true;
+                            publishUssWebuiStatus();
+                        }
+                        else if (force_stop_type == 5 || force_stop_type == 6 || force_stop_type == 7)
+                        {
+                            uss_back_webui_state_ = true;
+                            publishUssWebuiStatus();
+                        }
+
                         t_force_stop = clock(); // Sets when the robot force stopped
                         time_force_stop = std::chrono::steady_clock::now();
                         time_safety_light = std::chrono::steady_clock::now();
@@ -417,14 +648,20 @@ private:
 
         time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel); // Check time to reach nearest obstacle to the robot's front
         if (time_to_collision < time_collision_thresh ||
-            uss_dist_filt.data[1] < hard_dist_thresh && uss_dist_filt.data[1] > 0 ||
-            uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0 ||
-            uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0)
+            uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
         {
             not_safe_f = true;
             force_stop_type = 2;
-            // RCLCPP_ERROR(this->get_logger(), "SF010%d: ussDistSafetyCheck_f - time_to_collision: %f; uss_dist_filt: %u", force_stop_type, time_to_collision, uss_dist_filt.data[1]);  //  Current error code indicates USS force stop, but could also be bump switch
-            return not_safe_f;
+        }
+        else if (uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+        {
+            not_safe_f = true;
+            force_stop_type = 1;
+        }
+        else if (uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0)
+        {
+            not_safe_f = true;
+            force_stop_type = 3;
         }
 
         return not_safe_f;
@@ -444,14 +681,20 @@ private:
 
         time_to_collision = (float)(uss_dist_filt.data[5]) / (-100.0 * linear_vel); // Check time to reach nearest obstacle to the robot's back
         if (time_to_collision < time_collision_thresh ||
-            uss_dist_filt.data[5] < hard_dist_thresh && uss_dist_filt.data[5] > 0 ||
-            uss_dist_filt.data[4] < hard_dist_thresh_side && uss_dist_filt.data[4] > 0 ||
-            uss_dist_filt.data[6] < hard_dist_thresh_side && uss_dist_filt.data[6] > 0)
+            uss_dist_filt.data[5] < hard_dist_thresh_diag && uss_dist_filt.data[5] > 0)
         {
             not_safe_b = true;
             force_stop_type = 6;
-            // RCLCPP_ERROR(this->get_logger(), "SF010%d: ussDistSafetyCheck_b - time_to_collision: %f; uss_dist_filt: %u", force_stop_type, time_to_collision, uss_dist_filt.data[5]);
-            return not_safe_b;
+        }
+        else if (uss_dist_filt.data[4] < hard_dist_thresh_side && uss_dist_filt.data[4] > 0)
+        {
+            not_safe_b = true;
+            force_stop_type = 5;
+        }
+        else if (uss_dist_filt.data[6] < hard_dist_thresh_side && uss_dist_filt.data[6] > 0)
+        {
+            not_safe_b = true;
+            force_stop_type = 7;
         }
 
         return not_safe_b;
@@ -742,6 +985,19 @@ private:
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
+
+            // bump_front_webui_state_ = false;
+            // bump_back_webui_state_ = false;
+            // publishBumpWebuiStatus();
+
+            bump_front_state_ = false;
+            bump_back_state_ = false;
+
+            uss_front_webui_state_ = false;
+            uss_back_webui_state_ = false;
+
+            publishUssWebuiStatus();
+
             setUvUssInterlock(false);
             setUvBumpInterlock(false);
             force_stop_type = 0;
@@ -781,6 +1037,9 @@ private:
     {
         if (bump_front_enable && msg.data)
         {
+            // bump_front_webui_state_ = true;
+            // publishBumpWebuiStatus();
+
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -789,6 +1048,10 @@ private:
                 if (!force_stop)
                 {
                     force_stop = true;
+
+                    bump_front_state_ = true;
+                    publishUssBumpGroupStatus();
+
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
                     force_stop_release = false;
@@ -807,6 +1070,9 @@ private:
     {
         if (bump_back_enable && msg.data)
         {
+            // bump_back_webui_state_ = true;
+            // publishBumpWebuiStatus();
+
             int cmd_vel_type;
             cmd_vel_type = getCmdVelType();
 
@@ -815,6 +1081,9 @@ private:
                 if (!force_stop)
                 {
                     force_stop = true;
+                    bump_back_state_ = true;
+                    publishUssBumpGroupStatus();
+
                     setUvBumpInterlock(true);
                     force_stop_bump = true;
                     force_stop_release = false;
