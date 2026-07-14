@@ -305,7 +305,7 @@ private:
                      name == "uss_stop_thresh" ||
                      name == "uss_stop_thresh_side")
             {   // 参数必须是Int
-                if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INT)
+                if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER)
                 {
                     result.successful = false;
                     result.reason = name + " must be int";
