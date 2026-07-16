@@ -8,14 +8,17 @@
 #include <chrono>
 
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/int32_multi_array.hpp"
 #include "std_msgs/msg/int32.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "antobot_platform_msgs/msg/float32_array.hpp"   // Wheel velocity command
 
 // Common control base
 #include "antobot_control/anto_control_base.hpp"
+#include "std_msgs/msg/bool.hpp"
 
 using std::placeholders::_1;
 
@@ -53,16 +56,18 @@ namespace
 	constexpr double STEER_RETARGET_TOL_DEG = 2.0;
 
 	constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+	constexpr double DEG_TO_RAD = 3.14159265358979323846 / 180.0;
+	constexpr double TWO_PI = 2.0 * 3.14159265358979323846;
 
 	// Mechanical limit for multi-turn steering (logical angle) [deg]
 	constexpr double STEER_MIN_DEG = -90.0;
 	constexpr double STEER_MAX_DEG = +90.0;
 
 	// control freq [Hz]
-	constexpr double CONTROL_FREQUENCY_HZ = 30.0;
+	constexpr double CONTROL_FREQUENCY_HZ = 50.0;
 
 	// Tolerance for checking turn position [deg]
-	constexpr double TRANSITION_TOL_DEG = 2.0;
+	constexpr double TRANSITION_TOL_DEG = 5.0;
 
 	// steady to active
 	constexpr bool   ENABLE_STEADY_HOLD = false;
@@ -175,8 +180,8 @@ public:
 		params.wheel_radius         = WHEEL_RADIUS_M;
 		params.control_frequency_hz = CONTROL_FREQUENCY_HZ;
 		params.velocity_timeout_sec = 0.1;
-		params.max_linear           = 0.2;
-		params.min_linear           = -0.2;
+		params.max_linear           = 1.3;
+		params.min_linear           = -1.3;
 		params.max_angular          = 0.2;
 		params.min_angular          = -0.2;
 		params.max_linear_accel     = 0.1;
@@ -185,7 +190,7 @@ public:
 		params.max_angular_decel    = -3.0;
 		params.enable_smoothing     = true;
 		params.enable_timeout       = true;
-		params.enable_odom          = false;   // odom not used here
+		params.enable_odom          = true;
 		setParams(params);
 
 		RCLCPP_INFO(
@@ -223,6 +228,12 @@ public:
 			50,
 			std::bind(&WheelSteerControl::onTwistCmd, this, std::placeholders::_1));
 
+		wheel_status_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+			"/antobot/wheeldrive/status",
+			10,
+			std::bind(&WheelSteerControl::onWheelStatus, this, std::placeholders::_1));
+
+
 		// Publishers
 		cmd_pos_raw_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
 			"/antobot/control/wheelsteer/cmd_pos_raw",
@@ -232,10 +243,27 @@ public:
 			"/antobot/control/wheelsteer/real_pos",
 			50);
 
-		// Wheel velocity command publisher
-		pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
-			"/antobridge/wheel_vel_cmd",
+		odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
+			"/antobot/robot/odometry",
 			10);
+
+
+		// Wheel velocity command publisher
+		// pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
+		// 	"/antobridge/wheel_vel_cmd",
+		// 	10);
+
+		pub_wheel_vel_cmd_ = this->create_publisher<antobot_platform_msgs::msg::Float32Array>(
+			"/antobot/control/wheeldrive/wheel_vel_cmd",
+			10);
+
+		lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/lights_f",
+            10);
+
+        lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>(
+            "/antobridge/lights_b",
+            10);
 
 		{
 			// Initial steering command for the default mode
@@ -335,10 +363,6 @@ private:
 				} else {
 					const double speed = std::hypot(vx, vy);
 
-					RCLCPP_INFO(
-						get_logger(),
-						"CRAB mode: vx=%.3f, vy=%.3f, speed=%.6f",
-						vx, vy, speed);
 
 					if (speed < EPS_V) {
 						// If no clear direction, use preset CRAB angle
@@ -515,11 +539,11 @@ private:
 
 			raw_cmd.data[i] = target_raw_deg;
 			final_logical_targets_[i] = desired_logical_deg;
-			RCLCPP_INFO(
-				get_logger(),
-				"Wheel %d [Mode %d]: desired=%.2f (orig=%.2f, invert=%d) -> raw=%.2f (offset=%.2f)",
-				i + 1, current_mode_, desired_logical_deg, target_logical_angles[i],
-				invert ? 1 : 0, target_raw_deg, zero_offset_deg_[i]);
+			// RCLCPP_INFO(
+				// get_logger(),
+				// "Wheel %d [Mode %d]: desired=%.2f (orig=%.2f, invert=%d) -> raw=%.2f (offset=%.2f)",
+				// i + 1, current_mode_, desired_logical_deg, target_logical_angles[i],
+				// invert ? 1 : 0, target_raw_deg, zero_offset_deg_[i]);
 		}
 
 		cmd_pos_raw_pub_->publish(raw_cmd);
@@ -578,6 +602,11 @@ private:
 			msg->angular.z,  // omega
 			now_sec);
 
+		auto & state = getState();
+		const double max_speed = std::max(std::fabs(msg->linear.x), std::fabs(msg->linear.y));
+		state.params.max_linear = max_speed;
+		state.params.min_linear = -max_speed;
+
 		// For CRAB/COUNTERPHASE update steering targets based on current velocity command.
 		if (current_mode_ == CRAB || current_mode_ == COUNTERPHASE) {
 
@@ -586,12 +615,42 @@ private:
 				target_logical_angles,
 				/*use_preset_for_travel_modes=*/false);
 
-			if (steeringTargetChangedSignificantly(target_logical_angles)) {
-				publishSteeringTargets(target_logical_angles);
-			}
+			// if (steeringTargetChangedSignificantly(target_logical_angles)) {
+			publishSteeringTargets(target_logical_angles);
+			// }
 		}
 
-		velocity_smoother(now_sec);
+		antobot_control::AntoControlBase::velocity_smoother(now_sec);
+	}
+
+
+	void onWheelStatus(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+	{
+		if (msg->data.size() < 4) {
+			RCLCPP_ERROR(get_logger(),
+				"wheel_status size mismatch. Expected 4, got %zu", msg->data.size());
+			return;
+		}
+
+        // Extract  motor RPMs
+        double LF_rpm = static_cast<double>(msg->data[0]);
+        double LR_rpm = static_cast<double>(msg->data[1]);
+        double RF_rpm = static_cast<double>(msg->data[2]);
+        double RR_rpm = static_cast<double>(msg->data[3]);
+
+		std::cout << "===== Wheel RPMs: LF=" << LF_rpm << ", LR=" << LR_rpm
+				  << ", RF=" << RF_rpm << ", RR=" << RR_rpm << std::endl;
+
+		std::vector<double> speeds = { LF_rpm, LR_rpm, RF_rpm, RR_rpm };
+        const double now_sec = this->now().seconds();
+
+		// Push wheel feedback into AntoControlBase
+        wheel_cmd_vel_callback(speeds, now_sec);
+
+		// Compute odometry update
+        robot_odom_compute_2d(now_sec);
+		publishOdom();
+
 	}
 
 	// ======================================================
@@ -632,20 +691,20 @@ private:
 				double target  = target_logical_angles_[i];
 				double err     = std::fabs(current - target);
 
-				RCLCPP_INFO(
-					get_logger(),
-					" Wheel %d: logical_pos = %.3f deg, target = %.3f deg, err = %.3f deg (tol=%.3f)",
-					i+1, current, target, err, transition_tol_deg_
-				);
+				// RCLCPP_INFO(
+				// 	get_logger(),
+				// 	" Wheel %d: logical_pos = %.3f deg, target = %.3f deg, err = %.3f deg (tol=%.3f)",
+				// 	i+1, current, target, err, transition_tol_deg_
+				// );
 
 				if (err > max_err) max_err = err;
 			}
 
-			RCLCPP_INFO(
-				get_logger(),
-				" -> Max error across wheels = %.3f deg (tol=%.3f)",
-				max_err, transition_tol_deg_
-			);
+			// RCLCPP_INFO(
+			// 	get_logger(),
+			// 	" -> Max error across wheels = %.3f deg (tol=%.3f)",
+			// 	max_err, transition_tol_deg_
+			// );
 
 			if (max_err <= transition_tol_deg_) {
 				steer_state_ = ACTIVE;
@@ -732,33 +791,24 @@ private:
 	}
 
 	// ======================================================================
-	// wrapper velocity_smoother to start smoothing only when wheels can move
-	// ======================================================================
-	void velocity_smoother(double now_time_sec)
-	{
-		if (steer_state_ != ACTIVE) {
-			auto & st = getState();
-			st.smoothed_cmd.linear   = 0.0;
-			st.smoothed_cmd.linear_y = 0.0;
-			st.smoothed_cmd.angular  = 0.0;
-			st.clipped_cmd           = st.smoothed_cmd;
-			return;
-		}
-		antobot_control::AntoControlBase::velocity_smoother(now_time_sec);
-	}
-
-	// ======================================================================
 	// wheel_speed_compute
 	// ======================================================================
 	void wheel_speed_compute() override
 	{
 		// If steering is still transitioning, force all wheel speeds to zero.
-		if (steer_state_ == TRANSITIONING) {
-			antobot_platform_msgs::msg::Float32Array wheel_cmd;
-			wheel_cmd.data.resize(wheel_count_, 0.0f);
-			pub_wheel_vel_cmd_->publish(wheel_cmd);
-			return;
-		}
+		// if (steer_state_ == TRANSITIONING) {
+		// 	antobot_platform_msgs::msg::Float32Array wheel_cmd;
+		// 	wheel_cmd.data.resize(wheel_count_, 0.0f);
+		// 	pub_wheel_vel_cmd_->publish(wheel_cmd);
+
+		// 	std_msgs::msg::Bool lights_f_msg;
+        //     std_msgs::msg::Bool lights_b_msg;
+        //     lights_f_msg.data = false;
+        //     lights_b_msg.data = false;
+        //     lights_f_pub_->publish(lights_f_msg);
+        //     lights_b_pub_->publish(lights_b_msg);
+		// 	return;
+		// }
 
 		// ACTIVE state: compute wheel speeds from smoothed command and current steering angles.
 		const auto & st  = getState();
@@ -766,6 +816,33 @@ private:
 		const double vx  = cmd.linear;    // smoothed vx [m/s], forward positive
 		const double vy  = cmd.linear_y;  // smoothed vy [m/s], left positive
 		const double w   = cmd.angular;   // smoothed omega [rad/s], CCW positive
+
+
+		std_msgs::msg::Bool lights_f_msg;
+        std_msgs::msg::Bool lights_b_msg;
+
+        const double light_deadband = 0.01;
+
+        if (vx > light_deadband) {
+    // forward
+            lights_f_msg.data = true;
+            lights_b_msg.data = false;
+        } else if (vx < -light_deadband) {
+    // backward
+            lights_f_msg.data = false;
+            lights_b_msg.data = true;
+        } else if (std::fabs(w) > light_deadband || std::fabs(vy) > light_deadband) {
+    // rotation or crab sideways: both lights on
+            lights_f_msg.data = true;
+            lights_b_msg.data = true;
+        } else {
+    // stop
+            lights_f_msg.data = false;
+            lights_b_msg.data = false;
+        }
+
+        lights_f_pub_->publish(lights_f_msg);
+        lights_b_pub_->publish(lights_b_msg);
 
 		antobot_platform_msgs::msg::Float32Array wheel_cmd;
 		wheel_cmd.data.resize(wheel_count_, 0.0f);
@@ -835,13 +912,144 @@ private:
 	}
 
 	// ======================================================================
-	// compute_robot_twist_from_wheels (not used in this node)
+	// compute_robot_twist_from_wheels
 	// ======================================================================
 	void compute_robot_twist_from_wheels(double & linear, double & angular) override
 	{
-		// This node does not compute odometry yet. Return zeros.
-		linear  = 0.0;
+		double linear_y = 0.0;
+		compute_robot_twist_from_wheels_2d(linear, linear_y, angular);
+	}
+
+	void compute_robot_twist_from_wheels_2d(double & linear_x,
+	                                        double & linear_y,
+	                                        double & angular) override
+	{
+		linear_x = 0.0;
+		linear_y = 0.0;
 		angular = 0.0;
+
+		const auto & feedback = this->state_.wheel_feedback;
+		if (!feedback.valid || feedback.measured_speed.size() < static_cast<std::size_t>(wheel_count_)) {
+			return;
+		}
+
+		double ata[3][3] = {};
+		double atb[3] = {};
+		int valid_rows = 0;
+
+		for (int drive_idx = 0; drive_idx < wheel_count_; ++drive_idx) {
+			const int phys = DRIVE_INDEX_TO_PHYS[drive_idx];
+			const int steer_idx = phys_to_steer_[phys];
+			if (steer_idx < 0 || steer_idx >= wheel_count_ || !enabled_[steer_idx]) {
+				continue;
+			}
+
+			const double theta_rad = logical_pos_deg_[steer_idx] * DEG_TO_RAD;
+			const double c = std::cos(theta_rad);
+			const double s = std::sin(theta_rad);
+			const double x_i = PHYSICAL_WHEEL_POS[phys].first;
+			const double y_i = PHYSICAL_WHEEL_POS[phys].second;
+
+			const double wheel_radps = feedback.measured_speed[drive_idx] * TWO_PI / 60.0;
+			double v_long = wheel_radps * WHEEL_RADIUS_M;
+			v_long = drive_inverted_[steer_idx] ? v_long : -v_long;
+
+			const double row[3] = {
+				c,
+				s,
+				(-y_i * c) + (x_i * s)
+			};
+
+			for (int r = 0; r < 3; ++r) {
+				atb[r] += row[r] * v_long;
+				for (int col = 0; col < 3; ++col) {
+					ata[r][col] += row[r] * row[col];
+				}
+			}
+			++valid_rows;
+		}
+
+		if (valid_rows < 3) {
+			return;
+		}
+
+		double aug[3][4] = {
+			{ata[0][0], ata[0][1], ata[0][2], atb[0]},
+			{ata[1][0], ata[1][1], ata[1][2], atb[1]},
+			{ata[2][0], ata[2][1], ata[2][2], atb[2]}
+		};
+
+		for (int pivot = 0; pivot < 3; ++pivot) {
+			int best = pivot;
+			for (int row = pivot + 1; row < 3; ++row) {
+				if (std::fabs(aug[row][pivot]) > std::fabs(aug[best][pivot])) {
+					best = row;
+				}
+			}
+
+			if (std::fabs(aug[best][pivot]) < 1e-9) {
+				return;
+			}
+
+			if (best != pivot) {
+				for (int col = 0; col < 4; ++col) {
+					std::swap(aug[pivot][col], aug[best][col]);
+				}
+			}
+
+			const double pivot_value = aug[pivot][pivot];
+			for (int col = pivot; col < 4; ++col) {
+				aug[pivot][col] /= pivot_value;
+			}
+
+			for (int row = 0; row < 3; ++row) {
+				if (row == pivot) {
+					continue;
+				}
+				const double factor = aug[row][pivot];
+				for (int col = pivot; col < 4; ++col) {
+					aug[row][col] -= factor * aug[pivot][col];
+				}
+			}
+		}
+
+		linear_x = aug[0][3];
+		linear_y = aug[1][3];
+		angular = aug[2][3];
+	}
+
+	void publishOdom()
+	{
+		nav_msgs::msg::Odometry msg;
+		const auto & odom_state = this->state_.odom;
+
+		msg.header.stamp = this->now();
+		msg.header.frame_id = odom_frame_id_;
+		msg.child_frame_id = base_frame_id_;
+
+		msg.pose.pose.position.x = odom_state.x;
+		msg.pose.pose.position.y = odom_state.y;
+		msg.pose.pose.position.z = 0.0;
+
+		const double yaw = odom_state.yaw;
+		msg.pose.pose.orientation.x = 0.0;
+		msg.pose.pose.orientation.y = 0.0;
+		msg.pose.pose.orientation.z = std::sin(yaw * 0.5);
+		msg.pose.pose.orientation.w = std::cos(yaw * 0.5);
+
+		msg.twist.twist.linear.x = odom_state.linear_x;
+		msg.twist.twist.linear.y = odom_state.linear_y;
+		msg.twist.twist.linear.z = 0.0;
+		msg.twist.twist.angular.x = 0.0;
+		msg.twist.twist.angular.y = 0.0;
+		msg.twist.twist.angular.z = odom_state.angular;
+
+		for (int i = 0; i < 36; ++i) {
+			msg.pose.covariance[i] = 0.0;
+			msg.twist.covariance[i] = 0.0;
+		}
+
+		odom_pub_->publish(msg);
 	}
 
 private:
@@ -877,11 +1085,18 @@ private:
 	rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr set_zero_sub_;
 	rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr           mode_sub_;
 	rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr      twist_sub_;
+	rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr wheel_status_sub_;
 
 	// Publishers
 	rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr cmd_pos_raw_pub_;
 	rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr real_pos_pub_;
+	rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
 	rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr pub_wheel_vel_cmd_;
+	rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_f_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr lights_b_pub_;
+
+	std::string odom_frame_id_{"odom"};
+	std::string base_frame_id_{"base_link"};
 
 	// Periodic control loop timer
 	rclcpp::TimerBase::SharedPtr control_timer_;

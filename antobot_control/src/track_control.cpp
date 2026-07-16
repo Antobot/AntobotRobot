@@ -420,7 +420,7 @@ private:
         msg.pose.pose.orientation.w = cy;
 
         // Twist
-        msg.twist.twist.linear.x  = odom_state.linear;
+        msg.twist.twist.linear.x  = odom_state.linear_x;
         msg.twist.twist.linear.y  = 0.0;
         msg.twist.twist.linear.z  = 0.0;
         msg.twist.twist.angular.x = 0.0;
