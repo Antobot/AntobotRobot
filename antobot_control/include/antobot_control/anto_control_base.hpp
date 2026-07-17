@@ -37,6 +37,8 @@ struct OdometryState
     double y{0.0};
     double yaw{0.0};  // rad
 
+    double linear_x{0.0};
+    double linear_y{0.0};
     double linear{0.0};
     double angular{0.0};
 
@@ -284,6 +286,19 @@ public:
     // Implementations depend on different motors
     virtual void compute_robot_twist_from_wheels(double & linear, double & angular) = 0;
 
+    // ======================================================================
+    // compute_robot_twist_from_wheels_2d (optional override for 4WS model)
+    // ======================================================================
+    // Given wheel_feedback.measured_speed, compute body twist (vx, vy, w).
+    // Default implementation falls back to the 1D differential-drive model.
+    virtual void compute_robot_twist_from_wheels_2d(double & linear_x,
+                                                    double & linear_y,
+                                                    double & angular)
+    {
+        compute_robot_twist_from_wheels(linear_x, angular);
+        linear_y = 0.0;
+    }
+
 
 
     // ======================================================================
@@ -292,6 +307,14 @@ public:
     // Integrate odometry using wheel feedback and chassis kinematics.
     // Base class handles integration; subclasses provide v, w via compute_robot_twist_from_wheels().
     virtual void robot_odom_compute(double now_time_sec){
+        robot_odom_compute_2d(now_time_sec);
+    }
+
+    // ======================================================================
+    // robot_odom_compute_2d
+    // ======================================================================
+    // Integrate planar odometry using body twist (vx, vy, w).
+    virtual void robot_odom_compute_2d(double now_time_sec){
         auto & p    = state_.params;
         auto & fb   = state_.wheel_feedback;
         auto & odom = state_.odom;
@@ -312,12 +335,15 @@ public:
         }
 
         // Compute robot-level twist from wheel speeds
-        double v = 0.0;
+        double vx = 0.0;
+        double vy = 0.0;
         double w = 0.0;
-        compute_robot_twist_from_wheels(v, w);
+        compute_robot_twist_from_wheels_2d(vx, vy, w);
 
         // Store twist in odom
-        odom.linear  = v;
+        odom.linear_x = vx;
+        odom.linear_y = vy;
+        odom.linear  = vx;
         odom.angular = w;
         
         // Skip integration for very small time intervals to avoid numerical issues
@@ -331,20 +357,20 @@ public:
         const double yaw_old = odom.yaw;
 
         if (fabs(w) < 1e-6) {
-
-            odom.x = x_old + v * dt * cos(yaw_old);
-            odom.y = y_old + v * dt * sin(yaw_old);
+            const double dx_world = vx * cos(yaw_old) - vy * sin(yaw_old);
+            const double dy_world = vx * sin(yaw_old) + vy * cos(yaw_old);
+            odom.x = x_old + dx_world * dt;
+            odom.y = y_old + dy_world * dt;
             odom.yaw = yaw_old + w * dt;
         } else {
-
             const double delta_theta = w * dt;
-            const double radius = v / w; 
+            const double sin_dt = sin(delta_theta);
+            const double cos_dt = cos(delta_theta);
+            const double dx_local = (vx * sin_dt + vy * (cos_dt - 1.0)) / w;
+            const double dy_local = (vx * (1.0 - cos_dt) + vy * sin_dt) / w;
 
-            const double delta_x_local = radius * sin(delta_theta);
-            const double delta_y_local = radius * (1.0 - cos(delta_theta));
-
-            odom.x = x_old + delta_x_local * cos(yaw_old) - delta_y_local * sin(yaw_old);
-            odom.y = y_old + delta_x_local * sin(yaw_old) + delta_y_local * cos(yaw_old);
+            odom.x = x_old + dx_local * cos(yaw_old) - dy_local * sin(yaw_old);
+            odom.y = y_old + dx_local * sin(yaw_old) + dy_local * cos(yaw_old);
             odom.yaw = yaw_old + delta_theta;
         }
 

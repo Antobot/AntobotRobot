@@ -1,9 +1,7 @@
 import os
-import yaml
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch_ros.descriptions import ParameterFile
 from ament_index_python.packages import get_package_share_directory
 from antobot_com_postgresql.db_config_loader import get_robot_config
 
@@ -21,8 +19,7 @@ def generate_launch_description():
         'costmap_config.yaml'
     )
 
-    with open(costmap_config_file, 'r') as f:
-        costmap_config = yaml.safe_load(f)
+    costmap_config = get_robot_config("costmap_config", costmap_config_file)
 
     lidar_base_config = costmap_config['costmap/costmap']['ros__parameters']['lidar_base_conifg']
 
@@ -46,8 +43,9 @@ def generate_launch_description():
 
     observation_sources_str = ' '.join(observation_sources_list)
 
-    costmap_config_list = [ParameterFile(costmap_config_file, allow_substs=True),
+    costmap_config_list = [
         {
+            **costmap_config.get("costmap/costmap", {}).get("ros__parameters", {}),
             'obstacle_layer.observation_sources': observation_sources_str,
             **dynamic_params,
             'use_sim_time': use_sim_time_value
