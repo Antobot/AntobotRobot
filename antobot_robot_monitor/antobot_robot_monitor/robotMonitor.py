@@ -67,15 +67,19 @@ class robotMonitor(Node):
         self.stuck_spotTurn_t = time.time()
         self.stuck_spotTurn_f = False
         self.stuck_spotTurn_lvl = 0
-        self.robot_yaw5  = 0.0
+        self.robot_yaw8  = 0.0
         self.stuck_straightMove = False
         self.stuck_straightMove_t = time.time()
         self.stuck_straightMove_f = False
         self.stuck_straightMove_lvl = 0
-        self.robot_movement_dist5 = 0.0
+        self.robot_movement_dist8 = 0.0
         self.robot_movement_dist1 = 0.0
         self.turn = False
-        self.yaw_past = []
+        self.yaw_previous = None
+        self.yaw_delta_history = []       # Saves (timestamp, delta_yaw) for the sliding window
+        self.yaw_history_start_time = None
+        self.robot_yaw8_accumulated = 0.0
+        self.yaw_window_seconds = 8.0
 
         self.pitch_lvl = 0
         self.roll_lvl = 0
@@ -84,7 +88,6 @@ class robotMonitor(Node):
         self.imu_buffer_Hz = 10        # Hz to check the imu orientation
         self.imu_buffer = []
         self.imu_buffer_len = int(self.imu_freq/self.imu_buffer_Hz)
-        self.imu_update_time = time.time()
         #print(self.imu_buffer_len)
 
         self.pitch_thresh_low = 10*pi/180
@@ -149,7 +152,8 @@ class robotMonitor(Node):
         # Stuck during spot turn (indicated by IMU)
         # if abs(self.cmdVel_angular.z) > 0.1 and abs(self.cmdVel_linear.x) <= self.spotTurn_oscillation_amplitude:    # spot turn command
             self.robot_movement_distance()
-            if self.cmdVel_spotTurn_consistency and abs(self.robot_yaw5) < 0.05 and self.robot_movement_dist5 < 1:    # if robot hasn't moved 3 degs or more in the last 5 seconds and less than 1m movedment in gps position
+            # if self.cmdVel_spotTurn_consistency and abs(self.robot_yaw8) < 0.05 and self.robot_movement_dist8 < 1:    # if robot hasn't moved 3 degs or more in the last 5 seconds and less than 1m movedment in gps position
+            if self.cmdVel_spotTurn_consistency and self.robot_yaw8_accumulated < 0.04:
                 if self.stuck_spotTurn is not True:
                     self.stuck_spotTurn_t = time.time() # will report 5 secons later as it checks for consistency
                     self.stuck_spotTurn_f = True
@@ -162,7 +166,7 @@ class robotMonitor(Node):
         # Stuck while moving straight(-ish)
         if not spot_turn_command and abs(self.cmdVel_linear.x) > 0.1 and self.As_bGNSS == True: #when GNSS is good, check robot location every 5 seconds - removed this requirement - robot can still get stuck when GPS is bad, moved inside milage tracker
             self.robot_movement_distance()
-            if self.cmdVel_straight_consistency and self.robot_movement_dist5 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
+            if self.cmdVel_straight_consistency and self.robot_movement_dist8 < 0.4: # If the robot has not moved more than 0.4m in the last 5 seconds
                 if self.stuck_straightMove is not True:
                     self.stuck_straightMove_t = time.time() # will report 5 seconds later as it checks for consistency
                     self.stuck_straightMove_f = True
@@ -178,9 +182,11 @@ class robotMonitor(Node):
             self.pub_robot_stuck.publish(msg)
         elif self.stuck_straightMove:
             msg.data =21
+            self.logger.info("MV0100: robot is stuck due to publishing /as/robot_stuck=21 straight_move")
             self.pub_robot_stuck.publish(msg)
         elif self.stuck_spotTurn:
             msg.data = 2
+            self.logger.info("MV0101: robot is stuck due to publishing /as/robot_stuck=2 spot_turn") 
             self.pub_robot_stuck.publish(msg)
 
 
@@ -266,7 +272,7 @@ class robotMonitor(Node):
         self.stuck_spotTurn_f = False   # Reset the flag
 
     def robot_movement_distance_reset(self):
-        self.robot_movement_dist5=0.0
+        self.robot_movement_dist8=0.0
         self.robot_movement_dist1=0.0
         self.As_lon_past = []
         self.As_lat_past = []
@@ -280,13 +286,13 @@ class robotMonitor(Node):
         if len(self.As_lat_past)>0:
 
             # Compare against the oldest reading (5 secs old) to check if the robot is stuck
-            self.robot_movement_dist5 = self.haversine(self.As_lat, self.As_lon, self.As_lat_past[0], self.As_lon_past[0])
+            self.robot_movement_dist8 = self.haversine(self.As_lat, self.As_lon, self.As_lat_past[0], self.As_lon_past[0])
 
             # Compare against the latest reading to track movement over time
             self.robot_movement_dist1 = self.haversine(self.As_lat, self.As_lon, self.As_lat_past[-1], self.As_lon_past[-1])
 
         else: # Assume no motion at the start
-            self.robot_movement_dist5=0.0
+            self.robot_movement_dist8=0.0
             self.robot_movement_dist1=0.0
 
 
@@ -300,7 +306,7 @@ class robotMonitor(Node):
             self.As_lon_past.append(self.As_lon)
 
         # Remove the oldest value in the log
-        if len(self.As_lat_past)>5:
+        if len(self.As_lat_past) > 8:
             self.As_lat_past.pop(0)
             self.As_lon_past.pop(0)
 
@@ -432,30 +438,36 @@ class robotMonitor(Node):
 
 
     def yaw_angle(self, yaw):
-        # # # Compares current yaw angle to previous, determining whether the robot is turning or not
-        # Input: angles <Vector3> - [roll, pitch, yaw]
+        # # # Calculates the net and accumulated yaw changes over a sliding time window.
+        # Input: yaw angle in radians
+        now = time.time()
 
-        # If there is historic data to work with
-        if len(self.yaw_past)==5:
+        # The first sample establishes the reference; there is no angle increment yet.
+        if self.yaw_previous is None:
+            self.yaw_previous = yaw
+            self.yaw_history_start_time = now
+            self.robot_yaw8 = 0.1  # Do not trigger stuck detection before the window is full.
+            self.robot_yaw8_accumulated = 0.0
+            return
 
-            # Compare against the oldest reading (5 secs old) to check if the robot is stuck
-            rad_diff = yaw-self.yaw_past[0]
-            self.robot_yaw5 = atan2(sin(rad_diff), cos(rad_diff))
-            #self.robot_yaw5 = abs(yaw - self.yaw_past[0])
+        # Normalise each incremental change to [-pi, pi] so crossings of +/-pi are correct.
+        yaw_delta = atan2(sin(yaw - self.yaw_previous), cos(yaw - self.yaw_previous))
+        self.yaw_previous = yaw
+        self.yaw_delta_history.append((now, yaw_delta))
 
-        else: # Assume no motion at the start
-            self.robot_yaw5=0.1 # reset to a value that won't trigger stuck detection
-            
-        if time.time() - self.imu_update_time > 1.0:
-            #print('update!')
-            # Add the new reading to the list
-            self.yaw_past.append(yaw)
-            self.imu_update_time = time.time() # reset imu update time
+        # Keep only angle increments measured during the most recent window.
+        window_start = now - self.yaw_window_seconds
+        while self.yaw_delta_history and self.yaw_delta_history[0][0] < window_start:
+            self.yaw_delta_history.pop(0)
 
+        # Preserve the original meaning of robot_yaw8: signed net change in heading.
+        if now - self.yaw_history_start_time >= self.yaw_window_seconds:
+            self.robot_yaw8 = sum(delta for _, delta in self.yaw_delta_history)
+        else:
+            self.robot_yaw8 = 0.1  # Do not trigger stuck detection before the window is full.
 
-        # Remove the oldest value in the log
-        if len(self.yaw_past)>5:
-            self.yaw_past.pop(0)
+        # This additionally reports all turning motion, including back-and-forth oscillation.
+        self.robot_yaw8_accumulated = sum(abs(delta) for _, delta in self.yaw_delta_history)
     
     def GPS_callback(self,gps_msg):
         # gps callback function, if gps status is 3 then it's in fix mode
@@ -490,7 +502,7 @@ class robotMonitor(Node):
         self.cmdVel_linear = data.linear
         self.cmdVel_angular = data.angular
         
-        if self.robot_movement_dist5 != 0 and abs(self.cmdVel_angular.z) < 0.1 and abs(self.cmdVel_linear.x)<0.1:
+        if self.robot_movement_dist8 != 0 and abs(self.cmdVel_angular.z) < 0.1 and abs(self.cmdVel_linear.x)<0.1:
             self.robot_movement_distance_reset()
             #print('reset')
 
