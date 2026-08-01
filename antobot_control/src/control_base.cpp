@@ -5,131 +5,173 @@
 #include <cmath>
 #include <functional>
 
-ControlBase::ControlBase(const std::string &node_name)
+namespace
+{
+    double approach(double current, double target, double accel, double decel, double dt)
+    {
+        const bool accelerating =
+            std::fabs(target) >= std::fabs(current) && current * target >= 0.0;
+        const double limit = (accelerating ? accel : decel) * dt;
+        return current + std::clamp(target - current, -limit, limit);
+    }
+}
+
+ControlBase::ControlBase(
+    const std::string &node_name,
+    const ControlConfig &default_config)
     : rclcpp::Node(node_name)
 {
+    declare_parameter<std::string>("robot_role", default_config.robot_role);
+    declare_parameter<double>("velocity_timeout", default_config.velocity_timeout_sec);
+    declare_parameter<double>("min_linear", default_config.min_linear);
+    declare_parameter<double>("max_linear", default_config.max_linear);
+    declare_parameter<double>("min_angular", default_config.min_angular);
+    declare_parameter<double>("max_angular", default_config.max_angular);
+    declare_parameter<double>("max_linear_accel", default_config.max_linear_accel);
+    declare_parameter<double>("max_linear_decel", default_config.max_linear_decel);
+    declare_parameter<double>("max_angular_accel", default_config.max_angular_accel);
+    declare_parameter<double>("max_angular_decel", default_config.max_angular_decel);
+    declare_parameter<bool>("enable_smoothing", default_config.enable_smoothing);
+    declare_parameter<bool>("enable_timeout", default_config.enable_timeout);
+    declare_parameter<bool>("enable_odom", default_config.enable_odom);
+
+    config_.robot_role = get_parameter("robot_role").as_string();
+    config_.velocity_timeout_sec = get_parameter("velocity_timeout").as_double();
+    config_.min_linear = get_parameter("min_linear").as_double();
+    config_.max_linear = get_parameter("max_linear").as_double();
+    config_.min_angular = get_parameter("min_angular").as_double();
+    config_.max_angular = get_parameter("max_angular").as_double();
+    config_.max_linear_accel = get_parameter("max_linear_accel").as_double();
+    config_.max_linear_decel = get_parameter("max_linear_decel").as_double();
+    config_.max_angular_accel = get_parameter("max_angular_accel").as_double();
+    config_.max_angular_decel = get_parameter("max_angular_decel").as_double();
+    config_.enable_smoothing = get_parameter("enable_smoothing").as_bool();
+    config_.enable_timeout = get_parameter("enable_timeout").as_bool();
+    config_.enable_odom = get_parameter("enable_odom").as_bool();
+    
+
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
-            "/antobot/robot/cmd_vel", 10,
+        "/antobot/robot/cmd_vel", 10,
         std::bind(&ControlBase::cmd_vel_callback, this, std::placeholders::_1));
     speed_status_sub_ = create_subscription<antobot_platform_msgs::msg::Float32Array>(
-            "/antobot/speed/status", 10,
+        "/antobot/bridge/wheel_vel", 10,
         std::bind(&ControlBase::speed_status_callback, this, std::placeholders::_1));
 
-    wheel_command_pub_ = create_publisher<antobot_platform_msgs::msg::Float32Array>(
-            "/antobridge/wheel_vel_cmd", 10);
+    speed_cmd_pub_ = create_publisher<antobot_platform_msgs::msg::Float32Array>(
+        "/antobridge/wheel_vel_cmd", 10);
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(
-            "/antobot/robot/odometry", 10);
-}
+        "/antobot/robot/odometry", 10);
 
-void ControlBase::configure_control(const ControlParams &params)
-{
-    params_ = params;
-    actuator_command_.assign(params_.actuator_count, 0.0);
-}
-
-void ControlBase::start_control_loop()
-{
-    const double frequency = params_.control_frequency_hz > 0.0 ? params_.control_frequency_hz : 30.0;
     timer_ = create_wall_timer(
-        std::chrono::duration<double>(1.0 / frequency),
+        std::chrono::duration<double>(1.0 / 30.0),
         std::bind(&ControlBase::control_loop, this));
 }
 
-const RobotCommand &ControlBase::command() const { return smoothed_command_; }
-const std::vector<double> &ControlBase::speed_feedback() const { return speed_feedback_; }
-const OdometryState &ControlBase::odometry() const { return odometry_; }
-void ControlBase::on_robot_command(const RobotCommand &) {}
-void ControlBase::on_speed_feedback(const std::vector<double> &) {}
-bool ControlBase::motion_enabled() const { return true; }
-
-double ControlBase::approach(
-    double current, double target, double accel, double decel, double dt)
+const SpeedCmd &ControlBase::command() const
 {
-    const bool accelerating =
-        std::fabs(target) >= std::fabs(current) && current * target >= 0.0;
-    const double limit = (accelerating ? accel : decel) * dt;
-    return current + std::clamp(target - current, -limit, limit);
+    return smoothed_cmd_twist_;
+}
+
+const ControlConfig &ControlBase::config() const
+{
+    return config_;
+}
+
+bool ControlBase::motion_enabled() const
+{ 
+    return true;
 }
 
 void ControlBase::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
-    raw_command_.linear_x = msg->linear.x;
-    raw_command_.linear_y = msg->linear.y;
-    raw_command_.angular_z = msg->angular.z;
+    raw_cmd_.linear_x = msg->linear.x;
+    raw_cmd_.linear_y = msg->linear.y;
+    raw_cmd_.angular_z = msg->angular.z;
     last_command_sec_ = now().seconds();
     has_command_ = true;
-    on_robot_command(raw_command_);
+    
+    on_robot_command(raw_cmd_);
 }
 
 void ControlBase::speed_status_callback(
     const antobot_platform_msgs::msg::Float32Array::SharedPtr msg)
 {
-    speed_feedback_.assign(msg->data.begin(), msg->data.end());
-    on_speed_feedback(speed_feedback_);
-    update_odometry(now().seconds());
+    if (msg->data.size() < speed_feedback_.size())
+    {
+        RCLCPP_WARN(get_logger(), "Speed feedback requires four elements, got %zu", msg->data.size());
+        return;
+    }
+    std::copy_n(msg->data.begin(), speed_feedback_.size(), speed_feedback_.begin());
+    
+    update_odometry();
 }
 
-void ControlBase::smooth_command(double now_sec)
+void ControlBase::smooth_command()
 {
+    double now_sec = now().seconds();
+
     double dt = now_sec - last_control_sec_;
     if (last_control_sec_ <= 0.0 || dt <= 0.0)
     {
-        dt = 1.0 / std::max(params_.control_frequency_hz, 1.0);
+        dt = 1.0 / 30.0;
     }
     last_control_sec_ = now_sec;
 
-    RobotCommand target = raw_command_;
-    if (params_.enable_timeout &&
-        (!has_command_ || now_sec - last_command_sec_ > params_.velocity_timeout_sec))
+    SpeedCmd target = raw_cmd_;
+    if (config_.enable_timeout &&
+        (!has_command_ || now_sec - last_command_sec_ > config_.velocity_timeout_sec))
     {
         target = {};
     }
-    target.linear_x = std::clamp(target.linear_x, params_.min_linear, params_.max_linear);
-    target.linear_y = std::clamp(target.linear_y, params_.min_linear, params_.max_linear);
-    target.angular_z = std::clamp(target.angular_z, params_.min_angular, params_.max_angular);
+    target.linear_x = std::clamp(target.linear_x, config_.min_linear, config_.max_linear);
+    target.linear_y = std::clamp(target.linear_y, config_.min_linear, config_.max_linear);
+    target.angular_z = std::clamp(target.angular_z, config_.min_angular, config_.max_angular);
 
-    if (!params_.enable_smoothing)
+    if (!config_.enable_smoothing)
     {
-        smoothed_command_ = target;
+        smoothed_cmd_twist_ = target;
         return;
     }
-    smoothed_command_.linear_x = approach(
-        smoothed_command_.linear_x, target.linear_x,
-        params_.max_linear_accel, params_.max_linear_decel, dt);
-    smoothed_command_.linear_y = approach(
-        smoothed_command_.linear_y, target.linear_y,
-        params_.max_linear_accel, params_.max_linear_decel, dt);
-    smoothed_command_.angular_z = approach(
-        smoothed_command_.angular_z, target.angular_z,
-        params_.max_angular_accel, params_.max_angular_decel, dt);
+    
+    smoothed_cmd_twist_.linear_x = approach(
+        smoothed_cmd_twist_.linear_x, target.linear_x,
+        config_.max_linear_accel, config_.max_linear_decel, dt);
+
+    smoothed_cmd_twist_.linear_y = approach(
+        smoothed_cmd_twist_.linear_y, target.linear_y,
+        config_.max_linear_accel, config_.max_linear_decel, dt);
+
+    smoothed_cmd_twist_.angular_z = approach(
+        smoothed_cmd_twist_.angular_z, target.angular_z,
+        config_.max_angular_accel, config_.max_angular_decel, dt);
 }
 
 void ControlBase::control_loop()
 {
-    smooth_command(now().seconds());
-    actuator_command_.assign(params_.actuator_count, 0.0);
+    smooth_command();
+    
+    speed_cmd_rpm_.fill(0.0);
+    
     if (motion_enabled())
     {
-        command_to_actuators(smoothed_command_, actuator_command_);
+        twist_to_rpm(smoothed_cmd_twist_, speed_cmd_rpm_);
     }
-    antobot_platform_msgs::msg::Float32Array output;
-    output.data.reserve(actuator_command_.size());
-    for (const double value : actuator_command_)
-    {
-        output.data.push_back(static_cast<float>(value));
-    }
-    wheel_command_pub_->publish(output);
+
+    publish_speed_cmd();
+
     publish_odometry();
 }
 
-void ControlBase::update_odometry(double now_sec)
+void ControlBase::update_odometry()
 {
-    if (!params_.enable_odom)
+    double now_sec = now().seconds();
+
+    if (!config_.enable_odom)
     {
         return;
     }
-    RobotCommand twist;
-    if (!feedback_to_body_twist(speed_feedback_, twist))
+    SpeedCmd twist;
+    if (!rpm_to_twist(speed_feedback_, twist))
     {
         return;
     }
@@ -155,6 +197,19 @@ void ControlBase::update_odometry(double now_sec)
     odometry_.yaw = std::atan2(
         std::sin(odometry_.yaw + twist.angular_z * dt),
         std::cos(odometry_.yaw + twist.angular_z * dt));
+}
+
+void ControlBase::publish_speed_cmd()
+{
+    antobot_platform_msgs::msg::Float32Array speed_cmd_msg;
+
+    speed_cmd_msg.data.reserve(speed_cmd_rpm_.size());
+    for (const double value : speed_cmd_rpm_)
+    {
+        speed_cmd_msg.data.push_back(static_cast<float>(value));
+    }
+
+    speed_cmd_pub_->publish(speed_cmd_msg);
 }
 
 void ControlBase::publish_odometry()

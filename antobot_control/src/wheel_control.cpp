@@ -5,37 +5,47 @@
 #include <functional>
 #include <memory>
 
+namespace
+{
+    ControlConfig wheel_default_config()
+    {
+        ControlConfig config;
+        config.min_linear = -1.3;
+        config.max_linear = 1.3;
+        config.min_angular = -0.2;
+        config.max_angular = 0.2;
+        config.max_linear_accel = 0.1;
+        config.max_linear_decel = 3.0;
+        config.max_angular_accel = 0.1;
+        config.max_angular_decel = 3.0;
+        return config;
+    }
+
+    double rad_to_deg(double value)
+    {
+        return value * 180.0 / M_PI;
+    }
+
+    double deg_to_rad(double value)
+    { 
+        return value * M_PI / 180.0;
+    }
+}
+
 constexpr std::array<std::size_t, 4> WheelControl::STEERING_TO_DRIVE;
 
 WheelControl::WheelControl()
-    : ControlBase("wheel_control")
+    : ControlBase("wheel_control", wheel_default_config())
 {
     declare_parameter<double>("wheel_base", 1.156);
     declare_parameter<double>("track_width", 1.1);
     declare_parameter<double>("wheel_radius", 0.203);
     declare_parameter<double>("steering_tolerance_deg", 5.0);
-    declare_parameter<double>("control_frequency", 50.0);
-    declare_parameter<double>("velocity_timeout", 0.1);
-    declare_parameter<double>("max_linear", 1.3);
-    declare_parameter<double>("max_angular", 0.2);
+    
     wheel_base_ = get_parameter("wheel_base").as_double();
     track_width_ = get_parameter("track_width").as_double();
     wheel_radius_ = get_parameter("wheel_radius").as_double();
     steering_tolerance_deg_ = get_parameter("steering_tolerance_deg").as_double();
-
-    ControlParams params;
-    params.actuator_count = 4;
-    params.control_frequency_hz = get_parameter("control_frequency").as_double();
-    params.velocity_timeout_sec = get_parameter("velocity_timeout").as_double();
-    params.max_linear = get_parameter("max_linear").as_double();
-    params.min_linear = -params.max_linear;
-    params.max_angular = get_parameter("max_angular").as_double();
-    params.min_angular = -params.max_angular;
-    params.max_linear_accel = 0.1;
-    params.max_linear_decel = 3.0;
-    params.max_angular_accel = 0.1;
-    params.max_angular_decel = 3.0;
-    configure_control(params);
 
     steering_position_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
         "/antobot/control/wheelsteer/real_pos_raw", 20,
@@ -45,9 +55,9 @@ WheelControl::WheelControl()
         std::bind(&WheelControl::mode_callback, this, std::placeholders::_1));
     steering_command_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
         "/antobot/control/wheelsteer/cmd_pos_raw", 20);
+
     mode_ = Mode::LOCK;
     update_steering_target({});
-    start_control_loop();
 }
 
 std::array<WheelControl::Point, 4> WheelControl::wheel_positions() const
@@ -57,9 +67,6 @@ std::array<WheelControl::Point, 4> WheelControl::wheel_positions() const
              {wheel_base_ / 2.0, -track_width_ / 2.0},
              {-wheel_base_ / 2.0, -track_width_ / 2.0}}};
 }
-
-double WheelControl::rad_to_deg(double value) { return value * 180.0 / M_PI; }
-double WheelControl::deg_to_rad(double value) { return value * M_PI / 180.0; }
 
 double WheelControl::limit_steering(double angle)
 {
@@ -82,18 +89,13 @@ double WheelControl::limit_steering(double angle)
     return std::clamp(angle, -90.0, 90.0);
 }
 
-void WheelControl::on_robot_command(const RobotCommand &value)
+void WheelControl::on_robot_command(const SpeedCmd &value)
 {
     update_steering_target(value);
 }
 
 void WheelControl::mode_callback(const std_msgs::msg::Int32::SharedPtr msg)
 {
-    if (msg->data < 0 || msg->data > 3)
-    {
-        RCLCPP_WARN(get_logger(), "Invalid wheel mode: %d", msg->data);
-        return;
-    }
     mode_ = static_cast<Mode>(msg->data);
     update_steering_target(command());
 }
@@ -111,7 +113,7 @@ void WheelControl::steering_position_callback(
     }
 }
 
-void WheelControl::update_steering_target(const RobotCommand &value)
+void WheelControl::update_steering_target(const SpeedCmd &value)
 {
     const auto positions = wheel_positions();
     if (mode_ == Mode::CRAB)
@@ -166,8 +168,8 @@ bool WheelControl::motion_enabled() const
     return true;
 }
 
-void WheelControl::command_to_actuators(
-    const RobotCommand &value, std::vector<double> &output)
+void WheelControl::twist_to_rpm(
+    const SpeedCmd &value, std::array<double, 4> &output)
 {
     const auto positions = wheel_positions();
     for (std::size_t i = 0; i < 4; ++i)
@@ -180,10 +182,10 @@ void WheelControl::command_to_actuators(
     }
 }
 
-bool WheelControl::feedback_to_body_twist(
-    const std::vector<double> &feedback, RobotCommand &twist) const
+bool WheelControl::rpm_to_twist(
+    const std::array<double, 4> &feedback, SpeedCmd &twist) const
 {
-    if (feedback.size() < 4 || wheel_radius_ <= 0.0)
+    if (wheel_radius_ <= 0.0)
     {
         return false;
     }

@@ -1,34 +1,21 @@
 #pragma once
 
-#include <string>
-#include <vector>
+#include <array>
+#include <memory>
 
 #include "control_base.h"
+#include "diff_model/diff_model_base.h"
 
 class DiffControl final : public ControlBase
 {
 public:
-    enum class DriveType
-    {
-        WHEEL,
-        TRACK
-    };
     DiffControl();
 
 private:
-    void command_to_actuators(
-        const RobotCommand &command, std::vector<double> &output) override;
-    bool feedback_to_body_twist(
-        const std::vector<double> &feedback, RobotCommand &twist) const override;
-    double transmission_rpm_per_mps() const;
+    void twist_to_rpm(
+        const SpeedCmd &command, std::array<double, 4> &output) override;
+    bool rpm_to_twist(
+        const std::array<double, 4> &feedback, SpeedCmd &twist) const override;
 
-    DriveType drive_type_{DriveType::WHEEL};
-    double track_width_{0.6};
-    double wheel_radius_{0.165};
-    std::vector<double> wheel_speed_correction_{1.0, 1.0, 1.0, 1.0};
-    double max_motor_rpm_{3000.0};
-    double gear_ratio_{40.0};
-    double sprocket_diameter_{0.3038};
-    double track_center_distance_{0.54};
-    double command_deadband_{0.02};
+    std::unique_ptr<DiffModelBase> model_;
 };

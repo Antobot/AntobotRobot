@@ -27,7 +27,11 @@ target_include_directories(antobot_control_core
     $<INSTALL_INTERFACE:include>
 )
 
-add_executable(diff_control_node src/diff_control.cpp)
+add_executable(diff_control_node
+  src/diff_control.cpp
+  src/diff_model/wheel_diff_model.cpp
+  src/diff_model/track_diff_model.cpp
+)
 target_link_libraries(diff_control_node antobot_control_core)
 ament_target_dependencies(diff_control_node
   rclcpp
