@@ -11,6 +11,9 @@ class DiffControl final : public ControlBase
 public:
     DiffControl();
 
+protected:
+    void speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg) override;
+
 private:
     void twist_to_rpm(
         const SpeedCmd &command, std::array<double, 4> &output) override;

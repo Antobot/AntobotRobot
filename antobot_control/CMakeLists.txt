@@ -31,6 +31,7 @@ add_executable(diff_control_node
   src/diff_control.cpp
   src/diff_model/wheel_diff_model.cpp
   src/diff_model/track_diff_model.cpp
+  src/diff_model/track_diff_model_401.cpp
 )
 target_link_libraries(diff_control_node antobot_control_core)
 ament_target_dependencies(diff_control_node

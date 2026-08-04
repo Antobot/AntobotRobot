@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "diff_model/track_diff_model_401.h"
 #include "diff_model/track_diff_model.h"
 #include "diff_model/wheel_diff_model.h"
 
@@ -16,9 +17,9 @@ DiffControl::DiffControl()
     {
         model_ = std::make_unique<WheelDiffModel>(*this);
     }
-    else if (robot_role[1] == '4')
+    else if (robot_role == "S401")
     {
-        model_ = std::make_unique<TrackDiffModel>(*this);
+        model_ = std::make_unique<TrackDiffModel_401>(*this);
     }
     else
     {
@@ -39,6 +40,13 @@ bool DiffControl::rpm_to_twist(
     const std::array<double, 4> &feedback, SpeedCmd &twist) const
 {
     return model_->rpm_to_twist(feedback, twist);
+}
+
+void DiffControl::speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg) 
+{
+    model_->run_buzzer(msg);
+
+    ControlBase::speed_status_callback(msg);
 }
 
 int main(int argc, char *argv[])

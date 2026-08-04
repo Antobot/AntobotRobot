@@ -15,9 +15,20 @@
 #include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "std_msgs/msg/u_int16.hpp"
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
+
+
+
+enum class SprayBumperRecoveryState
+{
+    NORMAL,
+    WAIT_RELEASE,
+    REVERSE_ONLY
+};
+
 
 class AntobotSafety : public rclcpp::Node
 {
@@ -35,6 +46,9 @@ public:
                                                                          std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
         sub_bump_back_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_back", 10,
                                                                         std::bind(&AntobotSafety::bumpBackCallback, this, _1));
+
+        sub_spray_bumper_status_ = this->create_subscription<std_msgs::msg::UInt16>("/antobot/spray/bumper_status", 10,
+                                                                                    std::bind(&AntobotSafety::sprayBumperStatusCallback, this, _1));
 
         cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10);
         uss_dist_filt_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/antobot/safety/uss_dist", 10);
@@ -160,6 +174,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
 
+    rclcpp::Subscription<std_msgs::msg::UInt16>::SharedPtr sub_spray_bumper_status_;
+
     size_t count_;
 
     std::vector<std::vector<int>> uss_dist_windows;
@@ -186,6 +202,11 @@ private:
     clock_t t_lastStopTriggerWarning;
     clock_t t_lastSafetyStatusSent;
 
+    uint16_t spray_bumper_status_{0};
+
+    SprayBumperRecoveryState spray_bumper_recovery_state_{SprayBumperRecoveryState::NORMAL};
+
+
     std::chrono::time_point<std::chrono::steady_clock> time_lastRcvdCmdVel = std::chrono::steady_clock::now();
     std::chrono::time_point<std::chrono::steady_clock> time_lastStopTriggerWarning = std::chrono::steady_clock::now();
     std::chrono::time_point<std::chrono::steady_clock> time_lastSafetyStatusSent = std::chrono::steady_clock::now();
@@ -201,7 +222,6 @@ private:
     bool fs_warn_msg_sent = true;
     bool fs_err_msg_sent = true;
 
-    bool movement_scale = false;
     bool movement_limit = true;
 
     int safety_light_pattern = 1;
@@ -432,9 +452,7 @@ private:
                 if (force_stop_type > 0)
                 {
                     float vel_out = 0;
-                    if (movement_scale) // Scale the movement
-                        vel_out = scaleCmdVel();
-                    else if (movement_limit)
+                    if (movement_limit)
                         vel_out = limitCmdVel();
 
                     // If it isn't safe to scale, force stop the robot
@@ -537,6 +555,30 @@ private:
                 fs_warn_msg_sent = true;
             }
         }
+
+
+
+        if (spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
+        {
+         // no release：no command velocity, no turning, no forward movement
+            cmd_vel_msg.linear.x = 0.0;
+            cmd_vel_msg.angular.z = 0.0;
+        }
+        else if (spray_bumper_recovery_state_ == SprayBumperRecoveryState::REVERSE_ONLY)
+        {
+            if (cmd_vel_msg.linear.x >= 0.0)
+            {
+        // stop forward movement and turning, only allow reverse movement
+                cmd_vel_msg.linear.x = 0.0;
+                cmd_vel_msg.angular.z = 0.0;
+            }
+            else
+            {
+        // only allow reverse movement, stop turning
+                cmd_vel_msg.angular.z = 0.0;
+            }
+        }
+
 
         prev_linear_vel = cmd_vel_msg.linear.x;
         prev_angular_vel = cmd_vel_msg.angular.z;
@@ -791,21 +833,6 @@ private:
         }
     }
 
-    float scaleCmdVel()
-    {
-        float vel_scale = 0;
-
-        vel_scale = calcVelScale();
-        cmd_vel_msg.linear.x = vel_scale * cmd_vel_msg.linear.x;
-
-        if (vel_scale > 0)
-            RCLCPP_INFO(this->get_logger(), "SF010%d: Scaling linear velocity by %f", force_stop_type, vel_scale);
-        else
-            RCLCPP_INFO(this->get_logger(), "SF010%d: scaleCmdVel - Force stop by USS!", force_stop_type);
-
-        return vel_scale;
-    }
-
     float limitCmdVel()
     {
         float vel_scale = 0;
@@ -982,6 +1009,22 @@ private:
 
         if (msg.data)
         {
+
+            if (spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE) 
+            {
+                if (spray_bumper_status_ != 0)
+                {
+                    // collision still exists: only allow reverse to get out of trouble.
+                    spray_bumper_recovery_state_ = SprayBumperRecoveryState::REVERSE_ONLY;
+                }
+                else
+                {
+                    // Collision has disappeared, but a collision occurred before;
+                    spray_bumper_recovery_state_ = SprayBumperRecoveryState::NORMAL;
+                }
+            }
+
+
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
@@ -1095,6 +1138,29 @@ private:
                     RCLCPP_INFO(this->get_logger(), "SF0111: Force stop by Back Bump Switch!");
                 }
             }
+        }
+    }
+
+    void sprayBumperStatusCallback(const std_msgs::msg::UInt16 &msg)
+    {
+        const bool was_active = spray_bumper_status_ != 0;
+        const bool is_active = msg.data != 0;
+    
+        spray_bumper_status_ = msg.data;
+    
+        if (!was_active && is_active)
+        {
+            spray_bumper_recovery_state_ = SprayBumperRecoveryState::WAIT_RELEASE;
+
+             RCLCPP_WARN_THROTTLE(this->get_logger(),
+                                  *this->get_clock(),
+                                  2000,
+                                  "Spray bumper collision detected: status=0x%04X, entering WAIT_RELEASE",
+                                  static_cast<unsigned int>(spray_bumper_status_));
+        }
+        if (was_active && !is_active && spray_bumper_recovery_state_ == SprayBumperRecoveryState::REVERSE_ONLY)
+        {
+            spray_bumper_recovery_state_ = SprayBumperRecoveryState::NORMAL;
         }
     }
 

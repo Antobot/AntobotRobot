@@ -67,6 +67,8 @@ protected:
     virtual void on_robot_command(const SpeedCmd &) {}
     virtual bool motion_enabled() const;
 
+    virtual void speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg);
+
 private:
     void control_loop();
     
@@ -78,7 +80,6 @@ private:
     void publish_odometry();
 
     void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg);
-    void speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg);
 
 
 private:
