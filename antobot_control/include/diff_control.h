@@ -12,7 +12,7 @@ public:
     DiffControl();
 
 protected:
-    void speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg) override;
+    void track_status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) override;
 
 private:
     void twist_to_rpm(
@@ -20,5 +20,8 @@ private:
     bool rpm_to_twist(
         const std::array<double, 4> &feedback, SpeedCmd &twist) const override;
 
+private:
     std::unique_ptr<DiffModelBase> model_;
+    
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr track_status_sub_;
 };

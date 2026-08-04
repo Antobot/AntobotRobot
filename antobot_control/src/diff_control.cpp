@@ -20,6 +20,9 @@ DiffControl::DiffControl()
     else if (robot_role == "S401")
     {
         model_ = std::make_unique<TrackDiffModel_401>(*this);
+        track_status_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/antobot/track/status", 10,
+            std::bind(&DiffControl::track_status_callback, this, std::placeholders::_1));
     }
     else
     {
@@ -42,11 +45,9 @@ bool DiffControl::rpm_to_twist(
     return model_->rpm_to_twist(feedback, twist);
 }
 
-void DiffControl::speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg) 
+void DiffControl::track_status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) 
 {
     model_->run_buzzer(msg);
-
-    ControlBase::speed_status_callback(msg);
 }
 
 int main(int argc, char *argv[])
