@@ -93,20 +93,21 @@ void TrackDiffModel_401::run_buzzer(const antobot_platform_msgs::msg::Float32Arr
 {
     static bool buzzer_on = false;
 
-    if(speed_msg->data[0] < 0 || speed_msg->data[2] < 0)
+    if(speed_msg->data[0] < 0 && speed_msg->data[2] < 0)
     {
         // add one frequency limit to avoid buzzer on/off too fast
         static auto last_buzzer_time = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - last_buzzer_time).count() < 1)
             return;
+
+        last_buzzer_time = now;
+        buzzer_on = !buzzer_on;
         
 
         std_msgs::msg::Bool buzzer_msg;
         buzzer_msg.data = buzzer_on;
         buzzer_pub_->publish(buzzer_msg);
-
-        buzzer_on = !buzzer_on;
     }
     else if(buzzer_on)
     {
