@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <std_msgs/msg/float32_multi_array.hpp>
+
 #include "diff_model/diff_model_base.h"
 #include "std_msgs/msg/bool.hpp"
 
@@ -13,7 +15,7 @@ public:
     bool rpm_to_twist(
         const std::array<double, 4> &feedback, SpeedCmd &twist) const override;
 
-    void run_buzzer(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg) override;
+    void run_buzzer(const std_msgs::msg::Float32MultiArray::SharedPtr msg) override;
 
 private:
     double transmission_rpm_per_mps() const;

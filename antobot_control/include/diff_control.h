@@ -2,9 +2,11 @@
 
 #include <array>
 #include <memory>
+#include <std_msgs/msg/float32_multi_array.hpp>
 
 #include "control_base.h"
 #include "diff_model/diff_model_base.h"
+
 
 class DiffControl final : public ControlBase
 {
@@ -12,7 +14,7 @@ public:
     DiffControl();
 
 protected:
-    void track_status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) override;
+    void track_status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
 
 private:
     void twist_to_rpm(

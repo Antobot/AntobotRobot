@@ -89,11 +89,11 @@ double TrackDiffModel_401::transmission_rpm_per_mps() const
         60.0 * gear_ratio_ / (pi * sprocket_diameter_) : 0.0;
 }
 
-void TrackDiffModel_401::run_buzzer(const antobot_platform_msgs::msg::Float32Array::SharedPtr speed_msg)
+void TrackDiffModel_401::run_buzzer(const std_msgs::msg::Float32MultiArray::SharedPtr speed_msg)
 {
     static bool buzzer_on = false;
 
-    if(speed_msg->data[0] < 0 && speed_msg->data[2] < 0)
+    if(speed_msg->data[2] < 0 && speed_msg->data[3] < 0)
     {
         // add one frequency limit to avoid buzzer on/off too fast
         static auto last_buzzer_time = std::chrono::steady_clock::now();
