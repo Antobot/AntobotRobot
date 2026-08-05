@@ -32,6 +32,7 @@ struct OdometryState
 struct ControlConfig
 {
     std::string robot_role{""};
+    double frequency_hz{30.0};
     double velocity_timeout_sec{0.1};
     double min_linear{-0.5};
     double max_linear{0.5};
