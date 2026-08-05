@@ -1273,12 +1273,15 @@ private:
     {
         static bool buzzer_on = false;
 
-        if(force_stop_type > 0)
+        // uss, bumper, spray_bumper 
+        if(force_stop_type > 0 || 
+            bump_front_state_ || bump_back_state_ ||
+            spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
         {
             // add one frequency limit to avoid buzzer on/off too fast
             static auto last_buzzer_time = std::chrono::steady_clock::now();
             auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::seconds>(now - last_buzzer_time).count() < 1)
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_buzzer_time).count() < 500)
                 return;
 
             last_buzzer_time = now;
