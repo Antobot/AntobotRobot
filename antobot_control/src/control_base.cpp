@@ -21,33 +21,13 @@ ControlBase::ControlBase(
     const ControlConfig &default_config)
     : rclcpp::Node(node_name)
 {
-    const auto &parameter_overrides = get_node_options().parameter_overrides();
-    const auto is_overridden = [&parameter_overrides](const std::string &name)
-    {
-        return std::any_of(
-            parameter_overrides.begin(), parameter_overrides.end(),
-            [&name](const rclcpp::Parameter &parameter)
-            {
-                return parameter.get_name() == name;
-            });
-    };
-
     declare_parameter<std::string>("robot_role", default_config.robot_role);
     declare_parameter<double>("frequency", default_config.frequency_hz);
     declare_parameter<double>("velocity_timeout", default_config.velocity_timeout_sec);
-    declare_parameter<double>("min_linear", default_config.min_linear);
-    declare_parameter<double>("max_linear", default_config.max_linear);
-    declare_parameter<double>("min_angular", default_config.min_angular);
-    declare_parameter<double>("max_angular", default_config.max_angular);
-    declare_parameter<double>("max_linear_accel", default_config.max_linear_accel);
-    declare_parameter<double>("max_linear_decel", default_config.max_linear_decel);
-    declare_parameter<double>("max_angular_accel", default_config.max_angular_accel);
-    declare_parameter<double>("max_angular_decel", default_config.max_angular_decel);
     declare_parameter<bool>("enable_smoothing", default_config.enable_smoothing);
     declare_parameter<bool>("enable_timeout", default_config.enable_timeout);
     declare_parameter<bool>("enable_odom", default_config.enable_odom);
 
-    // Backward-compatible parameters used by control_config stored in the database.
     declare_parameter<std::vector<double>>(
         "min_velocity", {default_config.min_linear, default_config.min_angular});
     declare_parameter<std::vector<double>>(
@@ -60,70 +40,23 @@ ControlBase::ControlBase(
     config_.robot_role = get_parameter("robot_role").as_string();
     config_.frequency_hz = get_parameter("frequency").as_double();
     config_.velocity_timeout_sec = get_parameter("velocity_timeout").as_double();
-    config_.min_linear = get_parameter("min_linear").as_double();
-    config_.max_linear = get_parameter("max_linear").as_double();
-    config_.min_angular = get_parameter("min_angular").as_double();
-    config_.max_angular = get_parameter("max_angular").as_double();
-    config_.max_linear_accel = get_parameter("max_linear_accel").as_double();
-    config_.max_linear_decel = get_parameter("max_linear_decel").as_double();
-    config_.max_angular_accel = get_parameter("max_angular_accel").as_double();
-    config_.max_angular_decel = get_parameter("max_angular_decel").as_double();
     config_.enable_smoothing = get_parameter("enable_smoothing").as_bool();
     config_.enable_timeout = get_parameter("enable_timeout").as_bool();
     config_.enable_odom = get_parameter("enable_odom").as_bool();
 
-    const auto apply_legacy_pair = [this, &is_overridden](
-        const std::string &legacy_name,
-        const std::string &linear_name,
-        const std::string &angular_name,
-        double &linear_value,
-        double &angular_value,
-        bool use_absolute_value)
-    {
-        if (!is_overridden(legacy_name))
-        {
-            return;
-        }
+    const auto min_velocity = get_parameter("min_velocity").as_double_array();
+    const auto max_velocity = get_parameter("max_velocity").as_double_array();
+    const auto max_accel = get_parameter("max_accel").as_double_array();
+    const auto max_decel = get_parameter("max_decel").as_double_array();
 
-        const auto values = get_parameter(legacy_name).as_double_array();
-        if (values.size() < 2)
-        {
-            RCLCPP_WARN(
-                get_logger(), "Parameter '%s' requires two elements; got %zu",
-                legacy_name.c_str(), values.size());
-            return;
-        }
-
-        if (!is_overridden(linear_name))
-        {
-            linear_value = use_absolute_value ? std::fabs(values[0]) : values[0];
-        }
-        if (!is_overridden(angular_name))
-        {
-            angular_value = use_absolute_value ? std::fabs(values[1]) : values[1];
-        }
-    };
-
-    apply_legacy_pair(
-        "min_velocity", "min_linear", "min_angular",
-        config_.min_linear, config_.min_angular, false);
-    apply_legacy_pair(
-        "max_velocity", "max_linear", "max_angular",
-        config_.max_linear, config_.max_angular, false);
-    apply_legacy_pair(
-        "max_accel", "max_linear_accel", "max_angular_accel",
-        config_.max_linear_accel, config_.max_angular_accel, true);
-    apply_legacy_pair(
-        "max_decel", "max_linear_decel", "max_angular_decel",
-        config_.max_linear_decel, config_.max_angular_decel, true);
-
-    if (config_.frequency_hz <= 0.0)
-    {
-        RCLCPP_WARN(
-            get_logger(), "Parameter 'frequency' must be positive; using 30 Hz");
-        config_.frequency_hz = 30.0;
-    }
-    
+    config_.min_linear = min_velocity[0];
+    config_.min_angular = min_velocity[1];
+    config_.max_linear = max_velocity[0];
+    config_.max_angular = max_velocity[1];
+    config_.max_linear_accel = std::fabs(max_accel[0]);
+    config_.max_angular_accel = std::fabs(max_accel[1]);
+    config_.max_linear_decel = std::fabs(max_decel[0]);
+    config_.max_angular_decel = std::fabs(max_decel[1]);
 
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
         "/antobot/robot/cmd_vel", 10,
