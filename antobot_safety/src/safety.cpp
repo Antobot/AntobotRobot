@@ -41,7 +41,7 @@ public:
         sub_uss_dist_ = this->create_subscription<antobot_platform_msgs::msg::UInt16Array>("/antobridge/uss_dist", 10,
                                                                     std::bind(&AntobotSafety::ussDistCallback, this, _1));
         sub_release_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/force_stop_release", 10,
-                                                    run_buzzer                  std::bind(&AntobotSafety::releaseCallback, this, _1));
+                                                                      std::bind(&AntobotSafety::releaseCallback, this, _1));
         sub_bump_front_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_front", 10,
                                                                          std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
         sub_bump_back_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_back", 10,
@@ -697,7 +697,7 @@ private:
 
         // Check time to reach nearest obstacle to the robot's front
         if(robot_role == "S401")
-            time_to_collision = min(min((float)(uss_dist_filt.data[1]) / (100.0 * linear_vel), 
+            time_to_collision = std::min(std::min((float)(uss_dist_filt.data[1]) / (100.0 * linear_vel), 
                 (float)(uss_dist_filt.data[2]) / (100.0 * linear_vel)), 
                 (float)(uss_dist_filt.data[3]) / (100.0 * linear_vel));
         else
