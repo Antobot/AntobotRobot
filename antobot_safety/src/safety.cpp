@@ -37,11 +37,11 @@ public:
     {
 
         sub_safety_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/safety/cmd_vel", 10,
-                                                                                   std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
+                                                                std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
         sub_uss_dist_ = this->create_subscription<antobot_platform_msgs::msg::UInt16Array>("/antobridge/uss_dist", 10,
-                                                                                           std::bind(&AntobotSafety::ussDistCallback, this, _1));
+                                                                    std::bind(&AntobotSafety::ussDistCallback, this, _1));
         sub_release_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/force_stop_release", 10,
-                                                                      std::bind(&AntobotSafety::releaseCallback, this, _1));
+                                                    run_buzzer                  std::bind(&AntobotSafety::releaseCallback, this, _1));
         sub_bump_front_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_front", 10,
                                                                          std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
         sub_bump_back_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_back", 10,
@@ -63,6 +63,7 @@ public:
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
         uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
+        buzzer_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/PDU_C", 10);
 
         auto status_qos = rclcpp::QoS(1).reliable();
 
@@ -102,6 +103,9 @@ public:
 
         // this->declare_parameter<bool>("uss_enable", false);
         // uss_enable = this->get_parameter("uss_enable").as_bool();
+
+        this->declare_parameter<std::string>("robot_role", "U303");
+        robot_role =  this->get_parameter("robot_role").as_string();
 
         this->declare_parameter<bool>("uss_front_enable", false);
         uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
@@ -164,6 +168,7 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_front_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_back_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_bump_group_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr buzzer_pub_;
 
     // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
     // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
@@ -585,6 +590,8 @@ private:
 
         cmd_vel_pub_->publish(cmd_vel_msg);
 
+        run_buzzer();
+
         // if (30.0*(clock() - t_lastSafetyStatusSent)/CLOCKS_PER_SEC > 1.0)   // Send status every 1 second
 
         duration = std::chrono::steady_clock::now() - time_lastSafetyStatusSent;
@@ -688,23 +695,57 @@ private:
         // force_stop_type: 1 - left front; 2 - straight front; 3 - right front
         bool not_safe_f = false;
 
-        time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel); // Check time to reach nearest obstacle to the robot's front
-        if (time_to_collision < time_collision_thresh ||
-            uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
+        // Check time to reach nearest obstacle to the robot's front
+        if(robot_role == "S401")
+            time_to_collision = min(min((float)(uss_dist_filt.data[1]) / (100.0 * linear_vel), 
+                (float)(uss_dist_filt.data[2]) / (100.0 * linear_vel)), 
+                (float)(uss_dist_filt.data[3]) / (100.0 * linear_vel));
+        else
+            time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel);
+
+
+
+        if(robot_role == "S401")
         {
-            not_safe_f = true;
-            force_stop_type = 2;
+            if (time_to_collision < time_collision_thresh ||
+                uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0 ||
+                uss_dist_filt.data[2] < hard_dist_thresh_diag && uss_dist_filt.data[2] > 0 ||
+                uss_dist_filt.data[3] < hard_dist_thresh_diag && uss_dist_filt.data[3] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 2;
+            }
+            else if(uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 1;
+            }
+            else if (uss_dist_filt.data[4] < hard_dist_thresh_side && uss_dist_filt.data[4] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 3;
+            }
         }
-        else if (uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+        else
         {
-            not_safe_f = true;
-            force_stop_type = 1;
+            if (time_to_collision < time_collision_thresh ||
+                uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 2;
+            }
+            else if (uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 1;
+            }
+            else if (uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 3;
+            }
         }
-        else if (uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0)
-        {
-            not_safe_f = true;
-            force_stop_type = 3;
-        }
+
 
         return not_safe_f;
     }
@@ -720,6 +761,9 @@ private:
 
         // force_stop_type: 7 - left back; 6 - straight back; 5 - right back
         bool not_safe_b = false;
+
+        if(robot_role == "S401")
+            return not_safe_b;
 
         time_to_collision = (float)(uss_dist_filt.data[5]) / (-100.0 * linear_vel); // Check time to reach nearest obstacle to the robot's back
         if (time_to_collision < time_collision_thresh ||
@@ -964,27 +1008,41 @@ private:
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
         uint16_t uss_dist_ar[USS_NUM] = {200};
 
-        if (uss_back_enable && uss_front_enable)
+        if(robot_role == "S401")
         {
-            uint16_t tmp[USS_NUM] = {
-                uss_avg[0], uss_avg[1], uss_avg[2], 200,
-                uss_avg[4], uss_avg[5], uss_avg[6], 200};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            if(uss_front_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    uss_avg[0], uss_avg[1], uss_avg[2], uss_avg[3],
+                    uss_avg[4], 200, 200, 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
         }
-        else if (uss_front_enable)
+        else
         {
-            uint16_t tmp[USS_NUM] = {
-                uss_avg[0], uss_avg[1], uss_avg[2], 200,
-                200, 200, 200, 200};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            if (uss_back_enable && uss_front_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    uss_avg[0], uss_avg[1], uss_avg[2], 200,
+                    uss_avg[4], uss_avg[5], uss_avg[6], 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
+            else if (uss_front_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    uss_avg[0], uss_avg[1], uss_avg[2], 200,
+                    200, 200, 200, 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
+            else if (uss_back_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    200, 200, 200, 200,
+                    uss_avg[4], uss_avg[5], uss_avg[6], 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
         }
-        else if (uss_back_enable)
-        {
-            uint16_t tmp[USS_NUM] = {
-                200, 200, 200, 200,
-                uss_avg[4], uss_avg[5], uss_avg[6], 200};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
-        }
+
 
         // -----------------------------
         // Publish
@@ -1209,6 +1267,37 @@ private:
             cmd_vel_type = 4;
         }
         return cmd_vel_type;
+    }
+
+    void run_buzzer()
+    {
+        static bool buzzer_on = false;
+
+        if(force_stop_type > 0)
+        {
+            // add one frequency limit to avoid buzzer on/off too fast
+            static auto last_buzzer_time = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - last_buzzer_time).count() < 1)
+                return;
+
+            last_buzzer_time = now;
+            buzzer_on = !buzzer_on;
+            
+
+            std_msgs::msg::Bool buzzer_msg;
+            buzzer_msg.data = buzzer_on;
+            buzzer_pub_->publish(buzzer_msg);
+
+        }
+        else if(buzzer_on)
+        {
+            // if the speed is positive and the buzzer is currently on, turn off the buzzer
+            std_msgs::msg::Bool buzzer_msg;
+            buzzer_msg.data = false;
+            buzzer_pub_->publish(buzzer_msg);
+            buzzer_on = false;
+        }
     }
 };
 
