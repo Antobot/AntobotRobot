@@ -726,33 +726,19 @@ private:
 
         // Check time to reach nearest obstacle to the robot's front
         if(robot_role == "S401")
-            time_to_collision = std::min(std::min((float)(uss_dist_filt.data[1]) / (100.0 * linear_vel), 
-                (float)(uss_dist_filt.data[2]) / (100.0 * linear_vel)), 
-                (float)(uss_dist_filt.data[3]) / (100.0 * linear_vel));
-        else
-            time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel);
-
-
-
-        if(robot_role == "S401")
         {
-            if (time_to_collision < time_collision_thresh ||
-                uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
+            for(int i = 1; i <= 3; i++)
             {
-                not_safe_f = true;
-                force_stop_type = 2;
+                time_to_collision = (float)(uss_dist_filt.data[i]) / (100.0 * linear_vel);
+                if(uss_dist_filt.data[i] < hard_dist_thresh_diag && uss_dist_filt.data[i] > 0)
+                {
+                    not_safe_f = true;
+                    force_stop_type = i + 1;
+                    return not_safe_f;
+                }
             }
-            else if(uss_dist_filt.data[2] < hard_dist_thresh_diag && uss_dist_filt.data[2] > 0)
-            {
-                not_safe_f = true;
-                force_stop_type = 3;
-            }
-            else if(uss_dist_filt.data[3] < hard_dist_thresh_diag && uss_dist_filt.data[3] > 0)
-            {
-                not_safe_f = true;
-                force_stop_type = 4;
-            }
-            else if(uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+            
+            if(uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
             {
                 not_safe_f = true;
                 force_stop_type = 1;
@@ -765,6 +751,7 @@ private:
         }
         else
         {
+            time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel);
             if (time_to_collision < time_collision_thresh ||
                 uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
             {
