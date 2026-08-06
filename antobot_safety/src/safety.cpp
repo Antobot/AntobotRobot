@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <chrono>
 #include <functional>
@@ -12,6 +13,7 @@
 #include "std_msgs/msg/int16_multi_array.hpp"
 #include "std_msgs/msg/int8.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "antobot_platform_msgs/msg/float32_array.hpp"
 #include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
@@ -37,18 +39,19 @@ public:
     {
 
         sub_safety_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/safety/cmd_vel", 10,
-                                                                std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
+                                                        std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
         sub_uss_dist_ = this->create_subscription<antobot_platform_msgs::msg::UInt16Array>("/antobridge/uss_dist", 10,
-                                                                    std::bind(&AntobotSafety::ussDistCallback, this, _1));
+                                                        std::bind(&AntobotSafety::ussDistCallback, this, _1));
         sub_release_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/force_stop_release", 10,
-                                                                      std::bind(&AntobotSafety::releaseCallback, this, _1));
+                                                        std::bind(&AntobotSafety::releaseCallback, this, _1));
         sub_bump_front_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_front", 10,
-                                                                         std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
+                                                        std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
         sub_bump_back_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_back", 10,
-                                                                        std::bind(&AntobotSafety::bumpBackCallback, this, _1));
+                                                        std::bind(&AntobotSafety::bumpBackCallback, this, _1));
 
         sub_spray_bumper_status_ = this->create_subscription<std_msgs::msg::UInt16>("/antobot/spray/bumper_status", 10,
-                                                                                    std::bind(&AntobotSafety::sprayBumperStatusCallback, this, _1));
+                                                        std::bind(&AntobotSafety::sprayBumperStatusCallback, this, _1));
+
 
         cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10);
         uss_dist_filt_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/antobot/safety/uss_dist", 10);
@@ -136,19 +139,20 @@ public:
         this->declare_parameter<bool>("spray_bumper_enable", true);
         spray_bumper_enable = this->get_parameter("spray_bumper_enable").as_bool();
 
-        dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
+        this->declare_parameter<bool>("rpm_check_enable", false);
+        rpm_check_enable_ = this->get_parameter("rpm_check_enable").as_bool();
 
-        RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
-        RCLCPP_INFO_STREAM(this->get_logger(), "    frequency:" << frequency_);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    safe_operation_timeout_sec:" << safe_operation_timeout_sec);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    spray_bumper_enable:" << spray_bumper_enable);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_recovery_thresh:" << hard_dist_thresh);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_stop_thresh:" << hard_dist_thresh_diag);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_stop_thresh_side:" << hard_dist_thresh_side);
+
+        if(rpm_check_enable_)
+        {
+            sub_platform_rpm_ = this->create_subscription<std_msgs::msg::Float32MultiArray>("/antobot/track/status", 10,
+                                                        std::bind(&AntobotSafety::platformRpmCallback, this, _1));
+
+            sub_cmd_rpm_ = this->create_subscription<antobot_platform_msgs::msg::Float32Array>("/antobridge/wheel_vel_cmd", 10,
+                                                        std::bind(&AntobotSafety::cmdRpmCallback, this, _1));
+        }
+
+        dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -186,6 +190,13 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
 
     rclcpp::Subscription<std_msgs::msg::UInt16>::SharedPtr sub_spray_bumper_status_;
+
+    // check platform rpm
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_platform_rpm_;
+    rclcpp::Subscription<antobot_platform_msgs::msg::Float32Array>::SharedPtr sub_cmd_rpm_;
+
+    std::vector<std::vector<float>> cmd_rpm_{10, std::vector<float>{0.0, 0.0, 0.0, 0.0}};
+    std::vector<float>platform_rpm_{0.0, 0.0, 0.0, 0.0};
 
     size_t count_;
 
@@ -270,6 +281,9 @@ private:
     bool bump_front_state_{false};
     bool bump_back_state_{false};
 
+    bool rpm_check_enable_{false};
+    bool rpm_check_fail{false};
+
     // bool bump_front_webui_state_{false};
     // bool bump_back_webui_state_{false};
 
@@ -288,6 +302,28 @@ private:
     geometry_msgs::msg::Point old_pos;*/
 
     // Functions
+    void platformRpmCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+    {
+        platform_rpm_ = {
+            msg->data[2],
+            msg->data[2],
+            msg->data[3],
+            msg->data[3]
+        };
+    }
+
+    void cmdRpmCallback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg)
+    {
+        static int count = 0;
+        count = (count + 1) % 10;
+        cmd_rpm_[count] = {
+            msg->data[0],
+            msg->data[1],
+            msg->data[2],
+            msg->data[3]
+        };
+    }
+
     rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(const std::vector<rclcpp::Parameter> &parameters)
     {
         rcl_interfaces::msg::SetParametersResult result;
@@ -476,8 +512,20 @@ private:
 
     void update()
     {
-        /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
-         */
+        // Check RPM of CMD and feedback
+        if(rpm_check_enable_)
+        {
+            if(!checkRpm())
+            {
+                cmd_vel_msg.linear.x = 0;
+                cmd_vel_msg.angular.z = 0;
+
+                rpm_check_fail = true;
+
+                RCLCPP_WARN(this->get_logger(), "SF0105: Robot stopped - RPM check failed!");
+            }
+        }
+
         // Check USS recommendation
         if (uss_front_enable || uss_back_enable) // Only consider USS for specific defined safety levels
         {
@@ -810,6 +858,41 @@ private:
         return not_safe_b;
     }
 
+    bool checkRpm()
+    {
+        if(robot_role == "S401")
+        {
+            for(int wheel = 0; wheel < 4; ++wheel)
+            {
+                float min_cmd_rpm = cmd_rpm_[0][wheel];
+                float max_cmd_rpm = cmd_rpm_[0][wheel];
+                for(int i = 1; i < 10; ++i)
+                {
+                    min_cmd_rpm = std::min(min_cmd_rpm, cmd_rpm_[i][wheel]);
+                    max_cmd_rpm = std::max(max_cmd_rpm, cmd_rpm_[i][wheel]);
+                }
+
+                if(min_cmd_rpm > 0.5 && platform_rpm_[wheel] < min_cmd_rpm * 0.5)
+                {
+                    // 打印
+                    RCLCPP_WARN(this->get_logger(), 
+                        "SF0105: wheel %d, min_cmd_rpm: %f, platform_rpm: %f", wheel, min_cmd_rpm, platform_rpm_[wheel]);
+                    return false;
+                }
+
+                if(max_cmd_rpm < -0.5 && platform_rpm_[wheel] > max_cmd_rpm * 0.5)
+                {
+                    RCLCPP_WARN(this->get_logger(), 
+                        "SF0105: wheel %d, max_cmd_rpm: %f, platform_rpm: %f", wheel, max_cmd_rpm, platform_rpm_[wheel]);
+                    return false;
+                }
+            }
+            
+        }
+
+        return true;
+    }
+
     void lightsSafetyOut()
     {
         /* Sends light commands to AntoBridge based on the set pattern
@@ -866,6 +949,8 @@ private:
     {
         /* Automatically releases the robot from its force stopped state if the previously
         detected object is no longer being detected */
+
+        rpm_check_fail = false;
 
         if (force_stop && auto_release && !force_stop_bump)
         {
@@ -1307,7 +1392,8 @@ private:
         // uss, bumper, spray_bumper 
         if(force_stop_type > 0 || 
             bump_front_state_ || bump_back_state_ ||
-            spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
+            spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE ||
+            rpm_check_fail)
         {
             // add one frequency limit to avoid buzzer on/off too fast
             static auto last_buzzer_time = std::chrono::steady_clock::now();
