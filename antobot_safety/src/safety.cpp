@@ -708,12 +708,20 @@ private:
         if(robot_role == "S401")
         {
             if (time_to_collision < time_collision_thresh ||
-                uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0 ||
-                uss_dist_filt.data[2] < hard_dist_thresh_diag && uss_dist_filt.data[2] > 0 ||
-                uss_dist_filt.data[3] < hard_dist_thresh_diag && uss_dist_filt.data[3] > 0)
+                uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
             {
                 not_safe_f = true;
                 force_stop_type = 2;
+            }
+            else if(uss_dist_filt.data[2] < hard_dist_thresh_diag && uss_dist_filt.data[2] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 3;
+            }
+            else if(uss_dist_filt.data[3] < hard_dist_thresh_diag && uss_dist_filt.data[3] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 4;
             }
             else if(uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
             {
@@ -723,7 +731,7 @@ private:
             else if (uss_dist_filt.data[4] < hard_dist_thresh_side && uss_dist_filt.data[4] > 0)
             {
                 not_safe_f = true;
-                force_stop_type = 3;
+                force_stop_type = 5;
             }
         }
         else
