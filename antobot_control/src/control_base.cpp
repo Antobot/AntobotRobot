@@ -75,8 +75,8 @@ ControlBase::ControlBase(
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
         "/antobot/robot/cmd_vel", 10,
         std::bind(&ControlBase::cmd_vel_callback, this, std::placeholders::_1));
-    speed_status_sub_ = create_subscription<antobot_platform_msgs::msg::Float32Array>(
-        "/antobot/bridge/wheel_vel", 10,
+    speed_status_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+        "/antobot/track/status", 10,
         std::bind(&ControlBase::speed_status_callback, this, std::placeholders::_1));
 
     speed_cmd_pub_ = create_publisher<antobot_platform_msgs::msg::Float32Array>(
@@ -116,15 +116,19 @@ void ControlBase::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr ms
 }
 
 void ControlBase::speed_status_callback(
-    const antobot_platform_msgs::msg::Float32Array::SharedPtr msg)
+    const std_msgs::msg::Float32MultiArray::SharedPtr msg)
 {
     if (msg->data.size() < speed_feedback_.size())
     {
         RCLCPP_WARN(get_logger(), "Speed feedback requires four elements, got %zu", msg->data.size());
         return;
     }
-    std::copy_n(msg->data.begin(), speed_feedback_.size(), speed_feedback_.begin());
-    
+
+    speed_feedback_[0] = msg->data[2];
+    speed_feedback_[1] = msg->data[2];
+    speed_feedback_[2] = msg->data[3];
+    speed_feedback_[3] = msg->data[3];
+
     update_odometry();
 }
 

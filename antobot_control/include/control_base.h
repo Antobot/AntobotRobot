@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "antobot_platform_msgs/msg/float32_array.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -68,7 +69,7 @@ protected:
     virtual void on_robot_command(const SpeedCmd &) {}
     virtual bool motion_enabled() const;
 
-    virtual void speed_status_callback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg);
+    virtual void speed_status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
 
 private:
     void control_loop();
@@ -96,7 +97,7 @@ private:
 
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-    rclcpp::Subscription<antobot_platform_msgs::msg::Float32Array>::SharedPtr speed_status_sub_;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr speed_status_sub_;
     rclcpp::Publisher<antobot_platform_msgs::msg::Float32Array>::SharedPtr speed_cmd_pub_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
 };
