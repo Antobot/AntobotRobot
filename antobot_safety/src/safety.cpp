@@ -131,6 +131,11 @@ public:
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
+        // Keep the current behaviour by default.  Individual robot configurations
+        // can disable spray-bumper based safety handling when the hardware is absent.
+        this->declare_parameter<bool>("spray_bumper_enable", true);
+        spray_bumper_enable = this->get_parameter("spray_bumper_enable").as_bool();
+
         dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
 
         RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
@@ -138,6 +143,7 @@ public:
         RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
         RCLCPP_INFO_STREAM(this->get_logger(), "    safe_operation_timeout_sec:" << safe_operation_timeout_sec);
         RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
+        RCLCPP_INFO_STREAM(this->get_logger(), "    spray_bumper_enable:" << spray_bumper_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
         RCLCPP_INFO_STREAM(this->get_logger(), "    uss_recovery_thresh:" << hard_dist_thresh);
@@ -257,6 +263,7 @@ private:
 
     bool bump_front_enable = true;
     bool bump_back_enable = true;
+    bool spray_bumper_enable = true;
     bool uv_uss_interlock = false;
     bool uv_bump_interlock = false;
 
@@ -292,6 +299,7 @@ private:
         bool next_uss_back_enable = uss_back_enable;
         bool next_bump_front_enable = bump_front_enable;
         bool next_bump_back_enable = bump_back_enable;
+        bool next_spray_bumper_enable = spray_bumper_enable;
         int next_hard_dist_thresh = hard_dist_thresh;
         int next_hard_dist_thresh_diag = hard_dist_thresh_diag;
         int next_hard_dist_thresh_side = hard_dist_thresh_side;
@@ -306,7 +314,8 @@ private:
             if( name == "uss_front_enable" ||
                 name == "uss_back_enable" ||
                 name == "bump_front_enable" ||
-                name == "bump_back_enable")
+                name == "bump_back_enable" ||
+                name == "spray_bumper_enable")
             {   // 参数必须是Bool
                 if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL)
                 {
@@ -325,11 +334,13 @@ private:
                     next_bump_front_enable = value;
                 else if (name == "bump_back_enable")
                     next_bump_back_enable = value;
+                else if (name == "spray_bumper_enable")
+                    next_spray_bumper_enable = value;
             }
             else if( name == "uss_recovery_thresh" ||
                      name == "uss_stop_thresh" ||
                      name == "uss_stop_thresh_side")
-            {   // 参数必须是Int
+            {   // parameter must be int
                 if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER)
                 {
                     result.successful = false;
@@ -355,12 +366,14 @@ private:
         const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable;
 
         const bool bump_changed = next_bump_front_enable != bump_front_enable || next_bump_back_enable != bump_back_enable;
+        const bool spray_bumper_changed = next_spray_bumper_enable != spray_bumper_enable;
 
         // 所有参数验证通过后，再统一应用
         uss_front_enable = next_uss_front_enable;
         uss_back_enable = next_uss_back_enable;
         bump_front_enable = next_bump_front_enable;
         bump_back_enable = next_bump_back_enable;
+        spray_bumper_enable = next_spray_bumper_enable;
         hard_dist_thresh = next_hard_dist_thresh;
         hard_dist_thresh_diag = next_hard_dist_thresh_diag;
         hard_dist_thresh_side = next_hard_dist_thresh_side;
@@ -375,7 +388,21 @@ private:
             publishBumpEnableStatus();
         }
 
-        if (uss_changed || bump_changed)
+        if (spray_bumper_changed)
+        {
+            if (!spray_bumper_enable)
+            {
+                // Disabling this input must also remove an existing restriction.
+                spray_bumper_recovery_state_ = SprayBumperRecoveryState::NORMAL;
+            }
+            else if (spray_bumper_status_ != 0)
+            {
+                // The input was already active while disabled; handle it immediately.
+                spray_bumper_recovery_state_ = SprayBumperRecoveryState::WAIT_RELEASE;
+            }
+        }
+
+        if (uss_changed || bump_changed || spray_bumper_changed)
         {
             RCLCPP_INFO_STREAM(this->get_logger(),
                 "Dynamic safety parameters updated: "
@@ -387,6 +414,8 @@ private:
                     << bump_front_enable
                     << ", bump_back_enable="
                     << bump_back_enable
+                    << ", spray_bumper_enable="
+                    << spray_bumper_enable
                     << ", uss_recovery_thresh="
                     << hard_dist_thresh
                     << ", uss_stop_thresh="
@@ -1213,6 +1242,13 @@ private:
         const bool is_active = msg.data != 0;
     
         spray_bumper_status_ = msg.data;
+
+        // Continue recording the latest sensor state while disabled, so enabling
+        // the parameter can safely act on an already-active bumper.
+        if (!spray_bumper_enable)
+        {
+            return;
+        }
     
         if (!was_active && is_active)
         {
