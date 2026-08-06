@@ -58,6 +58,20 @@ ControlBase::ControlBase(
     config_.max_linear_decel = std::fabs(max_decel[0]);
     config_.max_angular_decel = std::fabs(max_decel[1]);
 
+    RCLCPP_INFO_STREAM(
+        get_logger(),
+        "Control parameters loaded:"
+            << " robot_role=" << config_.robot_role
+            << ", frequency=" << config_.frequency_hz
+            << ", velocity_timeout=" << config_.velocity_timeout_sec
+            << ", enable_smoothing=" << std::boolalpha << config_.enable_smoothing
+            << ", enable_timeout=" << config_.enable_timeout
+            << ", enable_odom=" << config_.enable_odom
+            << ", min_velocity=[" << config_.min_linear << ", " << config_.min_angular << "]"
+            << ", max_velocity=[" << config_.max_linear << ", " << config_.max_angular << "]"
+            << ", max_accel=[" << config_.max_linear_accel << ", " << config_.max_angular_accel << "]"
+            << ", max_decel=[" << config_.max_linear_decel << ", " << config_.max_angular_decel << "]");
+
     cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
         "/antobot/robot/cmd_vel", 10,
         std::bind(&ControlBase::cmd_vel_callback, this, std::placeholders::_1));
