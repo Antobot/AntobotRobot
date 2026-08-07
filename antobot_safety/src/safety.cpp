@@ -1396,6 +1396,31 @@ private:
             spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE ||
             rpm_check_fail)
         {
+            if(!buzzer_on)
+            {
+                if(force_stop_type > 0)
+                {
+                    RCLCPP_WARN(this->get_logger(), "SF010%d: Force stop by USS!", force_stop_type);
+                }
+                else if(bump_front_state_)
+                {
+                    RCLCPP_WARN(this->get_logger(), "SF0110: Force stop by Front Bump Switch!");
+                }
+                else if(bump_back_state_)
+                {
+                    RCLCPP_WARN(this->get_logger(), "SF0111: Force stop by Back Bump Switch!");
+                }
+                else if(spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
+                {
+                    RCLCPP_WARN(this->get_logger(), "Spray bumper collision detected: status=0x%04X, entering WAIT_RELEASE", static_cast<unsigned int>(spray_bumper_status_));
+                }
+                else if(rpm_check_fail)
+                {
+                    RCLCPP_WARN(this->get_logger(), "SF0105: RPM check failed!");
+                }
+            }
+                
+
             // add one frequency limit to avoid buzzer on/off too fast
             static auto last_buzzer_time = std::chrono::steady_clock::now();
             auto now = std::chrono::steady_clock::now();
