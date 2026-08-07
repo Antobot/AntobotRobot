@@ -315,12 +315,13 @@ private:
     void cmdRpmCallback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg)
     {
         static int count = 0;
+        const float max_speed_rpm = 2600.0;
         count = (count + 1) % 10;
         cmd_rpm_[count] = {
-            msg->data[0],
-            msg->data[1],
-            msg->data[2],
-            msg->data[3]
+            msg->data[0] * max_speed_rpm,
+            msg->data[1] * max_speed_rpm,
+            msg->data[2] * max_speed_rpm,
+            msg->data[3] * max_speed_rpm
         };
     }
 
