@@ -337,6 +337,7 @@ private:
         bool next_bump_front_enable = bump_front_enable;
         bool next_bump_back_enable = bump_back_enable;
         bool next_spray_bumper_enable = spray_bumper_enable;
+        bool next_rpm_check_enable = rpm_check_enable_;
         int next_hard_dist_thresh = hard_dist_thresh;
         int next_hard_dist_thresh_diag = hard_dist_thresh_diag;
         int next_hard_dist_thresh_side = hard_dist_thresh_side;
@@ -352,7 +353,8 @@ private:
                 name == "uss_back_enable" ||
                 name == "bump_front_enable" ||
                 name == "bump_back_enable" ||
-                name == "spray_bumper_enable")
+                name == "spray_bumper_enable" ||
+                name == "rpm_check_enable")
             {   // 参数必须是Bool
                 if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL)
                 {
@@ -373,6 +375,8 @@ private:
                     next_bump_back_enable = value;
                 else if (name == "spray_bumper_enable")
                     next_spray_bumper_enable = value;
+                else if (name == "rpm_check_enable")
+                    next_rpm_check_enable = value;
             }
             else if( name == "uss_recovery_thresh" ||
                      name == "uss_stop_thresh" ||
@@ -414,6 +418,7 @@ private:
         hard_dist_thresh = next_hard_dist_thresh;
         hard_dist_thresh_diag = next_hard_dist_thresh_diag;
         hard_dist_thresh_side = next_hard_dist_thresh_side;
+        rpm_check_enable_ = next_rpm_check_enable;
 
         if (uss_changed)
         {
@@ -1438,6 +1443,7 @@ private:
         }
         else if(buzzer_on)
         {
+
             // if the speed is positive and the buzzer is currently on, turn off the buzzer
             std_msgs::msg::Bool buzzer_msg;
             buzzer_msg.data = false;
