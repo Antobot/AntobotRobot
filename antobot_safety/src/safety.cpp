@@ -26,9 +26,9 @@ using std::placeholders::_1;
 
 enum class SprayBumperRecoveryState
 {
-    NORMAL,
-    WAIT_RELEASE,
-    REVERSE_ONLY
+    NORMAL = 0,
+    WAIT_RELEASE = 1,
+    REVERSE_ONLY = 2
 };
 
 
@@ -68,6 +68,9 @@ public:
         uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
         buzzer_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/PDU_C", 10);
 
+        spray_safety_status_pub_ = this->create_publisher<std_msgs::msg::UInt16>("/antobot/spray_safety/status", rclcpp::QoS(1).reliable().transient_local());
+        publishSpraySafetyStatus();
+
         auto status_qos = rclcpp::QoS(1).reliable();
 
         uss_enable_status_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/uss_enable/status", status_qos);
@@ -81,6 +84,9 @@ public:
         uss_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>(
             "/antobridge/uss_back_webui",
             10);
+
+        spray_bumper_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/spray_bumper_webui",
+                                                                              10);
 
         uss_bump_group_pub_ = this->create_publisher<std_msgs::msg::Bool>(
             "/uss_bump_group",
@@ -138,6 +144,8 @@ public:
         // can disable spray-bumper based safety handling when the hardware is absent.
         this->declare_parameter<bool>("spray_bumper_enable", true);
         spray_bumper_enable = this->get_parameter("spray_bumper_enable").as_bool();
+        
+        publishSprayBumperWebuiStatus();
 
         this->declare_parameter<bool>("rpm_check_enable", false);
         rpm_check_enable_ = this->get_parameter("rpm_check_enable").as_bool();
@@ -178,7 +186,9 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_front_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_back_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_bump_group_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr spray_bumper_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr buzzer_pub_;
+    rclcpp::Publisher<std_msgs::msg::UInt16>::SharedPtr spray_safety_status_pub_;
 
     // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
     // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
@@ -432,15 +442,17 @@ private:
 
         if (spray_bumper_changed)
         {
+            publishSprayBumperWebuiStatus();
+
             if (!spray_bumper_enable)
             {
                 // Disabling this input must also remove an existing restriction.
-                spray_bumper_recovery_state_ = SprayBumperRecoveryState::NORMAL;
+                setSprayBumperRecoveryState(SprayBumperRecoveryState::NORMAL);
             }
             else if (spray_bumper_status_ != 0)
             {
                 // The input was already active while disabled; handle it immediately.
-                spray_bumper_recovery_state_ = SprayBumperRecoveryState::WAIT_RELEASE;
+                setSprayBumperRecoveryState(SprayBumperRecoveryState::WAIT_RELEASE);
             }
         }
 
@@ -467,6 +479,31 @@ private:
         }
 
         return result;
+    }
+
+    void publishSpraySafetyStatus()
+    {
+        std_msgs::msg::UInt16 msg;
+        msg.data = static_cast<uint16_t>(spray_bumper_recovery_state_);
+        spray_safety_status_pub_->publish(msg);
+    }
+
+    void publishSprayBumperWebuiStatus()
+    {
+        std_msgs::msg::Bool msg;
+        msg.data = spray_bumper_enable;
+        spray_bumper_webui_pub_->publish(msg);
+    }
+
+    void setSprayBumperRecoveryState(SprayBumperRecoveryState state)
+    {
+        if (spray_bumper_recovery_state_ == state)
+        {
+            return;
+        }
+
+        spray_bumper_recovery_state_ = state;
+        publishSpraySafetyStatus();
     }
 
     void publishUssEnableStatus()
@@ -1188,12 +1225,12 @@ private:
                 if (spray_bumper_status_ != 0)
                 {
                     // collision still exists: only allow reverse to get out of trouble.
-                    spray_bumper_recovery_state_ = SprayBumperRecoveryState::REVERSE_ONLY;
+                    setSprayBumperRecoveryState(SprayBumperRecoveryState::REVERSE_ONLY);
                 }
                 else
                 {
                     // Collision has disappeared, but a collision occurred before;
-                    spray_bumper_recovery_state_ = SprayBumperRecoveryState::NORMAL;
+                    setSprayBumperRecoveryState(SprayBumperRecoveryState::NORMAL);
                 }
             }
 
@@ -1330,7 +1367,7 @@ private:
     
         if (!was_active && is_active)
         {
-            spray_bumper_recovery_state_ = SprayBumperRecoveryState::WAIT_RELEASE;
+            setSprayBumperRecoveryState(SprayBumperRecoveryState::WAIT_RELEASE);
 
              RCLCPP_WARN_THROTTLE(this->get_logger(),
                                   *this->get_clock(),
@@ -1340,7 +1377,7 @@ private:
         }
         if (was_active && !is_active && spray_bumper_recovery_state_ == SprayBumperRecoveryState::REVERSE_ONLY)
         {
-            spray_bumper_recovery_state_ = SprayBumperRecoveryState::NORMAL;
+            setSprayBumperRecoveryState(SprayBumperRecoveryState::NORMAL);
         }
     }
 
