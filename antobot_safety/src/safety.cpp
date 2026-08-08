@@ -411,7 +411,10 @@ private:
             }
         }
 
-        const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable;
+        const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable || 
+            next_hard_dist_thresh != hard_dist_thresh || 
+            next_hard_dist_thresh_diag != hard_dist_thresh_diag || 
+            next_hard_dist_thresh_side != hard_dist_thresh_side;
         const bool bump_changed = next_bump_front_enable != bump_front_enable || next_bump_back_enable != bump_back_enable;
         const bool spray_bumper_changed = next_spray_bumper_enable != spray_bumper_enable;
         const bool rpm_check_changed = next_rpm_check_enable != rpm_check_enable_;
@@ -457,24 +460,15 @@ private:
         {
             RCLCPP_INFO_STREAM(this->get_logger(),
                 "Dynamic safety parameters updated: "
-                    << "uss_front_enable="
-                    << uss_front_enable
-                    << ", uss_back_enable="
-                    << uss_back_enable
-                    << ", bump_front_enable="
-                    << bump_front_enable
-                    << ", bump_back_enable="
-                    << bump_back_enable
-                    << ", spray_bumper_enable="
-                    << spray_bumper_enable
-                    << ", rpm_check_enable="
-                    << rpm_check_enable_
-                    << ", uss_recovery_thresh="
-                    << hard_dist_thresh
-                    << ", uss_stop_thresh="
-                    << hard_dist_thresh_diag
-                    << ", uss_stop_thresh_side="
-                    << hard_dist_thresh_side);
+                    << "uss_front_enable = " << uss_front_enable << "\n"
+                    << "uss_back_enable = " << uss_back_enable << "\n"
+                    << "bump_front_enable = " << bump_front_enable << "\n"
+                    << "bump_back_enable = " << bump_back_enable << "\n"
+                    << "spray_bumper_enable = " << spray_bumper_enable << "\n"
+                    << "rpm_check_enable = " << rpm_check_enable_ << "\n"
+                    << "uss_recovery_thresh = " << hard_dist_thresh << "\n"
+                    << "uss_stop_thresh = " << hard_dist_thresh_diag << "\n"
+                    << "uss_stop_thresh_side = " << hard_dist_thresh_side);
         }
 
         return result;
