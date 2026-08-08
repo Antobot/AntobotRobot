@@ -151,14 +151,11 @@ public:
         rpm_check_enable_ = this->get_parameter("rpm_check_enable").as_bool();
 
 
-        if(rpm_check_enable_)
-        {
-            sub_platform_rpm_ = this->create_subscription<std_msgs::msg::Float32MultiArray>("/antobot/track/status", 10,
-                                                        std::bind(&AntobotSafety::platformRpmCallback, this, _1));
+        sub_platform_rpm_ = this->create_subscription<std_msgs::msg::Float32MultiArray>("/antobot/track/status", 10,
+                                                    std::bind(&AntobotSafety::platformRpmCallback, this, _1));
 
-            sub_cmd_rpm_ = this->create_subscription<antobot_platform_msgs::msg::Float32Array>("/antobridge/wheel_vel_cmd", 10,
-                                                        std::bind(&AntobotSafety::cmdRpmCallback, this, _1));
-        }
+        sub_cmd_rpm_ = this->create_subscription<antobot_platform_msgs::msg::Float32Array>("/antobridge/wheel_vel_cmd", 10,
+                                                    std::bind(&AntobotSafety::cmdRpmCallback, this, _1));
 
         dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
 
@@ -415,9 +412,9 @@ private:
         }
 
         const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable;
-
         const bool bump_changed = next_bump_front_enable != bump_front_enable || next_bump_back_enable != bump_back_enable;
         const bool spray_bumper_changed = next_spray_bumper_enable != spray_bumper_enable;
+        const bool rpm_check_changed = next_rpm_check_enable != rpm_check_enable_;
 
         // 所有参数验证通过后，再统一应用
         uss_front_enable = next_uss_front_enable;
@@ -456,7 +453,7 @@ private:
             }
         }
 
-        if (uss_changed || bump_changed || spray_bumper_changed)
+        if (uss_changed || bump_changed || spray_bumper_changed || rpm_check_changed)
         {
             RCLCPP_INFO_STREAM(this->get_logger(),
                 "Dynamic safety parameters updated: "
@@ -470,6 +467,8 @@ private:
                     << bump_back_enable
                     << ", spray_bumper_enable="
                     << spray_bumper_enable
+                    << ", rpm_check_enable="
+                    << rpm_check_enable_
                     << ", uss_recovery_thresh="
                     << hard_dist_thresh
                     << ", uss_stop_thresh="
@@ -821,7 +820,8 @@ private:
             for(int i = 1; i <= 3; i++)
             {
                 time_to_collision = (float)(uss_dist_filt.data[i]) / (100.0 * linear_vel);
-                if(uss_dist_filt.data[i] < hard_dist_thresh_diag && uss_dist_filt.data[i] > 0)
+                if(time_to_collision < time_collision_thresh ||
+                    (uss_dist_filt.data[i] < hard_dist_thresh_diag && uss_dist_filt.data[i] > 0))
                 {
                     not_safe_f = true;
                     force_stop_type = i + 1;
