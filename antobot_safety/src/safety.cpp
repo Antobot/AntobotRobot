@@ -26,9 +26,9 @@ using std::placeholders::_1;
 
 enum class SprayBumperRecoveryState
 {
-    NORMAL = 0,
-    WAIT_RELEASE = 1,
-    REVERSE_ONLY = 2
+    NORMAL = 1,
+    WAIT_RELEASE = 2,
+    REVERSE_ONLY = 3
 };
 
 
