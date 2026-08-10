@@ -1436,23 +1436,23 @@ private:
             {
                 if(force_stop_type > 0)
                 {
-                    RCLCPP_WARN(this->get_logger(), "SF010%d: Force stop by USS!", force_stop_type);
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by USS %d!", force_stop_type);
                 }
                 else if(bump_front_state_)
                 {
-                    RCLCPP_WARN(this->get_logger(), "SF0110: Force stop by Front Bump Switch!");
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by Front Bump Switch!");
                 }
                 else if(bump_back_state_)
                 {
-                    RCLCPP_WARN(this->get_logger(), "SF0111: Force stop by Back Bump Switch!");
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by Back Bump Switch!");
                 }
                 else if(spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
                 {
-                    RCLCPP_WARN(this->get_logger(), "Spray bumper collision detected: status=0x%04X, entering WAIT_RELEASE", static_cast<unsigned int>(spray_bumper_status_));
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by Spray bumper");
                 }
                 else if(rpm_check_fail)
                 {
-                    RCLCPP_WARN(this->get_logger(), "SF0105: RPM check failed!");
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by RPM check");
                 }
             }
                 
@@ -1470,11 +1470,9 @@ private:
             std_msgs::msg::Bool buzzer_msg;
             buzzer_msg.data = buzzer_on;
             buzzer_pub_->publish(buzzer_msg);
-
         }
         else if(buzzer_on)
         {
-
             // if the speed is positive and the buzzer is currently on, turn off the buzzer
             std_msgs::msg::Bool buzzer_msg;
             buzzer_msg.data = false;
