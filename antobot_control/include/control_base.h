@@ -86,7 +86,7 @@ private:
 
 private:
     ControlConfig config_;
-    SpeedCmd raw_cmd_;
+    SpeedCmd speed_cmd_;
     SpeedCmd smoothed_cmd_twist_;
     OdometryState odometry_;
     std::array<double, 4> speed_cmd_rpm_{};

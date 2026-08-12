@@ -106,13 +106,13 @@ bool ControlBase::motion_enabled() const
 
 void ControlBase::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg)
 {
-    raw_cmd_.linear_x = msg->linear.x;
-    raw_cmd_.linear_y = msg->linear.y;
-    raw_cmd_.angular_z = msg->angular.z;
+    speed_cmd_.linear_x = msg->linear.x;
+    speed_cmd_.linear_y = msg->linear.y;
+    speed_cmd_.angular_z = msg->angular.z;
     last_command_sec_ = now().seconds();
     has_command_ = true;
     
-    on_robot_command(raw_cmd_);
+    on_robot_command(speed_cmd_);
 }
 
 void ControlBase::speed_status_callback(
@@ -143,15 +143,15 @@ void ControlBase::smooth_command()
     }
     last_control_sec_ = now_sec;
 
-    SpeedCmd target = raw_cmd_;
+    SpeedCmd target = speed_cmd_;
     if (config_.enable_timeout &&
         (!has_command_ || now_sec - last_command_sec_ > config_.velocity_timeout_sec))
     {
         target = {};
     }
-    target.linear_x = std::clamp(target.linear_x, config_.min_linear, config_.max_linear);
-    target.linear_y = std::clamp(target.linear_y, config_.min_linear, config_.max_linear);
-    target.angular_z = std::clamp(target.angular_z, config_.min_angular, config_.max_angular);
+    target.linear_x = std::clamp(target.linear_x, -1.0, 1.0) * config_.max_linear;
+    target.linear_y = std::clamp(target.linear_y, -1.0, 1.0) * config_.max_linear;
+    target.angular_z = std::clamp(target.angular_z, -1.0, 1.0) * config_.max_angular;
 
     if (!config_.enable_smoothing)
     {
