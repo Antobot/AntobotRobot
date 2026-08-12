@@ -31,7 +31,6 @@ enum class SprayBumperRecoveryState
     REVERSE_ONLY = 3
 };
 
-
 class AntobotSafety : public rclcpp::Node
 {
 public:
@@ -250,8 +249,6 @@ private:
     clock_t t_release;
     bool fs_warn_msg_sent = true;
     bool fs_err_msg_sent = true;
-
-    bool movement_limit = true;
 
     int safety_light_pattern = 1;
     float safety_light_freq = 2.0;
@@ -569,9 +566,7 @@ private:
             {
                 if (force_stop_type > 0)
                 {
-                    float vel_out = 0;
-                    if (movement_limit)
-                        vel_out = limitCmdVel();
+                    float vel_out = limitCmdVel();
 
                     // If it isn't safe to scale, force stop the robot
                     if (vel_out == 0)
@@ -1025,18 +1020,18 @@ private:
 
     float limitCmdVel()
     {
-        float vel_scale = 0;
-        vel_scale = calcVelScale();
+        float vel_scale = calcVelScale();
 
         if (cmd_vel_msg.linear.x > vel_scale)
             cmd_vel_msg.linear.x = vel_scale;
         else if (cmd_vel_msg.linear.x < -vel_scale)
             cmd_vel_msg.linear.x = -vel_scale;
 
-        if (vel_scale > 0)
-            RCLCPP_DEBUG(this->get_logger(), "SF010%d: Limiting linear velocity to %f", force_stop_type, vel_scale);
-        else
-            RCLCPP_INFO(this->get_logger(), "SF010%d: limitCmdVel - Force stop by USS!", force_stop_type);
+        if(vel_scale == 0.0)
+        {
+            RCLCPP_INFO(this->get_logger(), "Force stop by USS %d : %d!", 
+                force_stop_type, uss_dist_filt.data[force_stop_type - 1]);
+        }
 
         return vel_scale;
     }
@@ -1053,22 +1048,9 @@ private:
         if (force_stop_type > 0)
         {
             int uss_data = uss_dist_filt.data[force_stop_type - 1];
-
-            if (uss_data > 100 || uss_data == 0)
-                vel_scale = 1;
-            else if (uss_data > 53)
-            {
-                vel_scale = log10(float(uss_data - 45) / 6);
-            }
-            else if (uss_data <= 53)
-            {
-                vel_scale = (0.005 * (uss_data - 25));
-            }
-            if (vel_scale < 0)
-            {
-                vel_scale = 0;
-            }
+            vel_scale = std::clamp((uss_data - 25) * 0.005, 0.0, 1.0);
         }
+
         return vel_scale;
     }
 
@@ -1118,41 +1100,58 @@ private:
         //  Outputs: publishes filtered USS data to /antobot_safety/uss_dist ROS topic
 
         static constexpr int USS_NUM = 8;
-        static constexpr int WIN_SIZE = 10;
+        static constexpr int WIN_SIZE = 12;
 
-        static uint16_t uss_buf[WIN_SIZE][USS_NUM] = {0};
-        static uint32_t uss_sum[USS_NUM] = {0};
+        static uint16_t uss_buf[WIN_SIZE][USS_NUM];
         static int buf_idx = 0;
         static int buf_cnt = 0;
-
-        if (buf_cnt == WIN_SIZE)
-        {
-            for (int i = 0; i < USS_NUM; i++)
-            {
-                uss_sum[i] -= uss_buf[buf_idx][i];
-            }
-        }
-        else
-        {
-            buf_cnt++;
-        }
 
         for (int i = 0; i < USS_NUM; i++)
         {
             uss_buf[buf_idx][i] = msg.data[i];
-            uss_sum[i] += msg.data[i];
         }
 
+        // 不计算初始值
+        // don't calculate initial data
+        if(buf_cnt < WIN_SIZE)
+        {
+            buf_cnt++;
+            buf_idx = (buf_idx + 1) % WIN_SIZE;
+            return ;
+        }
+        
+        uint32_t uss_avg[USS_NUM];
+        uint32_t dist_sum = 0;
+        int valid_num = 0;
+
+        // 取平均值并滤波
+        // Take the average and filter
+        for (int uss_id = 0; uss_id < USS_NUM; uss_id++)
+        {
+            valid_num = 0;
+            dist_sum = 0;
+            for(int dist_idx = (buf_idx + 2) % WIN_SIZE; dist_idx != buf_idx; dist_idx = (dist_idx + 1) % WIN_SIZE)
+            {
+                if(uss_buf[dist_idx][uss_id] == 1 && 
+                    (uss_buf[(dist_idx + WIN_SIZE - 1) % WIN_SIZE][uss_id] > 20) &&
+                    (uss_buf[(dist_idx + 1) % WIN_SIZE][uss_id] > 20)
+                )
+                {
+                    // The data was affected by water interference; this data was filtered.
+                }
+                else
+                {
+                    dist_sum += uss_buf[dist_idx][uss_id];
+                    valid_num++;
+                }
+            }
+            uss_avg[uss_id] = static_cast<uint16_t>(dist_sum / valid_num);
+        }
+        
         buf_idx = (buf_idx + 1) % WIN_SIZE;
 
-        uint16_t uss_avg[USS_NUM];
-        for (int i = 0; i < USS_NUM; i++)
-        {
-            uss_avg[i] = static_cast<uint16_t>(uss_sum[i] / buf_cnt);
-        }
-
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
-        uint16_t uss_dist_ar[USS_NUM] = {200};
+        uint16_t uss_dist_ar[USS_NUM] = {200, 200, 200, 200, 200, 200, 200, 200};
 
         if(robot_role == "S401")
         {
