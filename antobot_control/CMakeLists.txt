@@ -13,75 +13,52 @@ find_package(nav_msgs REQUIRED)
 find_package(antobot_platform_msgs REQUIRED)
 
 
-# ant_control_node  
-add_executable(ant_control_node src/ant_control.cpp)
-ament_target_dependencies(ant_control_node
+add_library(antobot_control_core src/control_base.cpp)
+ament_target_dependencies(antobot_control_core
   rclcpp
   std_msgs
   geometry_msgs
   nav_msgs
   antobot_platform_msgs
 )
-target_include_directories(ant_control_node
+target_include_directories(antobot_control_core
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
-
-add_executable(anto_control_node src/anto_control.cpp)
-ament_target_dependencies(anto_control_node
+add_executable(diff_control_node
+  src/diff_control.cpp
+  src/diff_model/wheel_diff_model.cpp
+  src/diff_model/track_diff_model.cpp
+  src/diff_model/track_diff_model_401.cpp
+)
+target_link_libraries(diff_control_node antobot_control_core)
+ament_target_dependencies(diff_control_node
   rclcpp
   std_msgs
   geometry_msgs
   nav_msgs
   antobot_platform_msgs
 )
-target_include_directories(anto_control_node
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
 
 
-# track_control_node
-add_executable(track_control_node src/track_control.cpp)
-ament_target_dependencies(track_control_node
+add_executable(wheel_control_node src/wheel_control.cpp)
+target_link_libraries(wheel_control_node antobot_control_core)
+ament_target_dependencies(wheel_control_node
   rclcpp
   std_msgs
   geometry_msgs
   nav_msgs
   antobot_platform_msgs
-)
-target_include_directories(track_control_node
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-
-
-# wheelsteer_control_node
-add_executable(wheelsteer_control_node src/wheelsteer_control.cpp)
-ament_target_dependencies(wheelsteer_control_node
-  rclcpp
-  std_msgs
-  geometry_msgs
-  nav_msgs
-  antobot_platform_msgs
-)
-target_include_directories(wheelsteer_control_node
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
 )
 
 
 install(
   TARGETS
-    ant_control_node
-    anto_control_node
-    track_control_node
-    wheelsteer_control_node
+    antobot_control_core
+    diff_control_node
+    wheel_control_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

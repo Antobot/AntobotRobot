@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <chrono>
 #include <functional>
@@ -12,12 +13,23 @@
 #include "std_msgs/msg/int16_multi_array.hpp"
 #include "std_msgs/msg/int8.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "antobot_platform_msgs/msg/float32_array.hpp"
 #include "antobot_platform_msgs/msg/u_int16_array.hpp"
 
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
+#include "std_msgs/msg/u_int16.hpp"
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
+
+
+
+enum class SprayBumperRecoveryState
+{
+    NORMAL = 1,
+    WAIT_RELEASE = 2,
+    REVERSE_ONLY = 3
+};
 
 class AntobotSafety : public rclcpp::Node
 {
@@ -26,15 +38,19 @@ public:
     {
 
         sub_safety_cmd_vel_ = this->create_subscription<geometry_msgs::msg::Twist>("/antobot/safety/cmd_vel", 10,
-                                                                                   std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
+                                                        std::bind(&AntobotSafety::safetyCmdVelCallback, this, _1));
         sub_uss_dist_ = this->create_subscription<antobot_platform_msgs::msg::UInt16Array>("/antobridge/uss_dist", 10,
-                                                                                           std::bind(&AntobotSafety::ussDistCallback, this, _1));
+                                                        std::bind(&AntobotSafety::ussDistCallback, this, _1));
         sub_release_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/force_stop_release", 10,
-                                                                      std::bind(&AntobotSafety::releaseCallback, this, _1));
+                                                        std::bind(&AntobotSafety::releaseCallback, this, _1));
         sub_bump_front_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_front", 10,
-                                                                         std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
+                                                        std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
         sub_bump_back_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_back", 10,
-                                                                        std::bind(&AntobotSafety::bumpBackCallback, this, _1));
+                                                        std::bind(&AntobotSafety::bumpBackCallback, this, _1));
+
+        sub_spray_bumper_status_ = this->create_subscription<std_msgs::msg::UInt16>("/antobot/spray/bumper_status", 10,
+                                                        std::bind(&AntobotSafety::sprayBumperStatusCallback, this, _1));
+
 
         cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10);
         uss_dist_filt_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/antobot/safety/uss_dist", 10);
@@ -49,6 +65,10 @@ public:
         lights_f_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_f", 10);
         lights_b_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/lights_b", 10);
         uv_safe_operation_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobot/safety/uvsafe_operation", 10);
+        buzzer_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/PDU_C", 10);
+
+        spray_safety_status_pub_ = this->create_publisher<std_msgs::msg::UInt16>("/antobot/spray_safety/status", rclcpp::QoS(1).reliable().transient_local());
+        publishSpraySafetyStatus();
 
         auto status_qos = rclcpp::QoS(1).reliable();
 
@@ -63,6 +83,9 @@ public:
         uss_back_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>(
             "/antobridge/uss_back_webui",
             10);
+
+        spray_bumper_webui_pub_ = this->create_publisher<std_msgs::msg::Bool>("/antobridge/spray_bumper_webui",
+                                                                              10);
 
         uss_bump_group_pub_ = this->create_publisher<std_msgs::msg::Bool>(
             "/uss_bump_group",
@@ -89,6 +112,9 @@ public:
         // this->declare_parameter<bool>("uss_enable", false);
         // uss_enable = this->get_parameter("uss_enable").as_bool();
 
+        this->declare_parameter<std::string>("robot_role", "U303");
+        robot_role =  this->get_parameter("robot_role").as_string();
+
         this->declare_parameter<bool>("uss_front_enable", false);
         uss_front_enable = this->get_parameter("uss_front_enable").as_bool();
 
@@ -113,18 +139,24 @@ public:
         this->declare_parameter<bool>("auto_release", false);
         auto_release = this->get_parameter("auto_release").as_bool();
 
-        dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
+        // Keep the current behaviour by default.  Individual robot configurations
+        // can disable spray-bumper based safety handling when the hardware is absent.
+        this->declare_parameter<bool>("spray_bumper_enable", true);
+        spray_bumper_enable = this->get_parameter("spray_bumper_enable").as_bool();
+        
+        publishSprayBumperWebuiStatus();
 
-        RCLCPP_INFO_STREAM(this->get_logger(), "load param: ");
-        RCLCPP_INFO_STREAM(this->get_logger(), "    frequency:" << frequency_);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    no_command_timeout_msec:" << no_command_timeout_msec);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    safe_operation_timeout_sec:" << safe_operation_timeout_sec);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    auto_release:" << auto_release);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_front_enable:" << uss_front_enable);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_back_enable:" << uss_back_enable);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_recovery_thresh:" << hard_dist_thresh);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_stop_thresh:" << hard_dist_thresh_diag);
-        RCLCPP_INFO_STREAM(this->get_logger(), "    uss_stop_thresh_side:" << hard_dist_thresh_side);
+        this->declare_parameter<bool>("rpm_check_enable", false);
+        rpm_check_enable_ = this->get_parameter("rpm_check_enable").as_bool();
+
+
+        sub_platform_rpm_ = this->create_subscription<std_msgs::msg::Float32MultiArray>("/antobot/track/status", 10,
+                                                    std::bind(&AntobotSafety::platformRpmCallback, this, _1));
+
+        sub_cmd_rpm_ = this->create_subscription<antobot_platform_msgs::msg::Float32Array>("/antobridge/wheel_vel_cmd", 10,
+                                                    std::bind(&AntobotSafety::cmdRpmCallback, this, _1));
+
+        dynamic_params_handler_ = this->add_on_set_parameters_callback(std::bind(&AntobotSafety::dynamicParametersCallback, this, _1));
 
         std::chrono::duration<double> period_sec(1.0 / frequency_);
         timer_ = this->create_wall_timer(period_sec, std::bind(&AntobotSafety::update, this));
@@ -150,6 +182,9 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_front_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_back_webui_pub_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr uss_bump_group_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr spray_bumper_webui_pub_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr buzzer_pub_;
+    rclcpp::Publisher<std_msgs::msg::UInt16>::SharedPtr spray_safety_status_pub_;
 
     // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_front_webui_pub_;
     // rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr bump_back_webui_pub_;
@@ -159,6 +194,15 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_release_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
+
+    rclcpp::Subscription<std_msgs::msg::UInt16>::SharedPtr sub_spray_bumper_status_;
+
+    // check platform rpm
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr sub_platform_rpm_;
+    rclcpp::Subscription<antobot_platform_msgs::msg::Float32Array>::SharedPtr sub_cmd_rpm_;
+
+    std::vector<std::vector<float>> cmd_rpm_{10, std::vector<float>{0.0, 0.0, 0.0, 0.0}};
+    std::vector<float>platform_rpm_{0.0, 0.0, 0.0, 0.0};
 
     size_t count_;
 
@@ -186,6 +230,11 @@ private:
     clock_t t_lastStopTriggerWarning;
     clock_t t_lastSafetyStatusSent;
 
+    uint16_t spray_bumper_status_{0};
+
+    SprayBumperRecoveryState spray_bumper_recovery_state_{SprayBumperRecoveryState::NORMAL};
+
+
     std::chrono::time_point<std::chrono::steady_clock> time_lastRcvdCmdVel = std::chrono::steady_clock::now();
     std::chrono::time_point<std::chrono::steady_clock> time_lastStopTriggerWarning = std::chrono::steady_clock::now();
     std::chrono::time_point<std::chrono::steady_clock> time_lastSafetyStatusSent = std::chrono::steady_clock::now();
@@ -200,9 +249,6 @@ private:
     clock_t t_release;
     bool fs_warn_msg_sent = true;
     bool fs_err_msg_sent = true;
-
-    bool movement_scale = false;
-    bool movement_limit = true;
 
     int safety_light_pattern = 1;
     float safety_light_freq = 2.0;
@@ -232,11 +278,15 @@ private:
 
     bool bump_front_enable = true;
     bool bump_back_enable = true;
+    bool spray_bumper_enable = true;
     bool uv_uss_interlock = false;
     bool uv_bump_interlock = false;
 
     bool bump_front_state_{false};
     bool bump_back_state_{false};
+
+    bool rpm_check_enable_{false};
+    bool rpm_check_fail{false};
 
     // bool bump_front_webui_state_{false};
     // bool bump_back_webui_state_{false};
@@ -256,6 +306,29 @@ private:
     geometry_msgs::msg::Point old_pos;*/
 
     // Functions
+    void platformRpmCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+    {
+        platform_rpm_ = {
+            msg->data[2],
+            msg->data[2],
+            msg->data[3],
+            msg->data[3]
+        };
+    }
+
+    void cmdRpmCallback(const antobot_platform_msgs::msg::Float32Array::SharedPtr msg)
+    {
+        static int count = 0;
+        const float max_speed_rpm = 2600.0;
+        count = (count + 1) % 10;
+        cmd_rpm_[count] = {
+            msg->data[0] * max_speed_rpm,
+            msg->data[1] * max_speed_rpm,
+            msg->data[2] * max_speed_rpm,
+            msg->data[3] * max_speed_rpm
+        };
+    }
+
     rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(const std::vector<rclcpp::Parameter> &parameters)
     {
         rcl_interfaces::msg::SetParametersResult result;
@@ -267,6 +340,8 @@ private:
         bool next_uss_back_enable = uss_back_enable;
         bool next_bump_front_enable = bump_front_enable;
         bool next_bump_back_enable = bump_back_enable;
+        bool next_spray_bumper_enable = spray_bumper_enable;
+        bool next_rpm_check_enable = rpm_check_enable_;
         int next_hard_dist_thresh = hard_dist_thresh;
         int next_hard_dist_thresh_diag = hard_dist_thresh_diag;
         int next_hard_dist_thresh_side = hard_dist_thresh_side;
@@ -281,7 +356,9 @@ private:
             if( name == "uss_front_enable" ||
                 name == "uss_back_enable" ||
                 name == "bump_front_enable" ||
-                name == "bump_back_enable")
+                name == "bump_back_enable" ||
+                name == "spray_bumper_enable" ||
+                name == "rpm_check_enable")
             {   // 参数必须是Bool
                 if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_BOOL)
                 {
@@ -300,11 +377,15 @@ private:
                     next_bump_front_enable = value;
                 else if (name == "bump_back_enable")
                     next_bump_back_enable = value;
+                else if (name == "spray_bumper_enable")
+                    next_spray_bumper_enable = value;
+                else if (name == "rpm_check_enable")
+                    next_rpm_check_enable = value;
             }
             else if( name == "uss_recovery_thresh" ||
                      name == "uss_stop_thresh" ||
                      name == "uss_stop_thresh_side")
-            {   // 参数必须是Int
+            {   // parameter must be int
                 if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_INTEGER)
                 {
                     result.successful = false;
@@ -327,18 +408,24 @@ private:
             }
         }
 
-        const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable;
-
+        const bool uss_changed = next_uss_front_enable != uss_front_enable || next_uss_back_enable != uss_back_enable || 
+            next_hard_dist_thresh != hard_dist_thresh || 
+            next_hard_dist_thresh_diag != hard_dist_thresh_diag || 
+            next_hard_dist_thresh_side != hard_dist_thresh_side;
         const bool bump_changed = next_bump_front_enable != bump_front_enable || next_bump_back_enable != bump_back_enable;
+        const bool spray_bumper_changed = next_spray_bumper_enable != spray_bumper_enable;
+        const bool rpm_check_changed = next_rpm_check_enable != rpm_check_enable_;
 
         // 所有参数验证通过后，再统一应用
         uss_front_enable = next_uss_front_enable;
         uss_back_enable = next_uss_back_enable;
         bump_front_enable = next_bump_front_enable;
         bump_back_enable = next_bump_back_enable;
+        spray_bumper_enable = next_spray_bumper_enable;
         hard_dist_thresh = next_hard_dist_thresh;
         hard_dist_thresh_diag = next_hard_dist_thresh_diag;
         hard_dist_thresh_side = next_hard_dist_thresh_side;
+        rpm_check_enable_ = next_rpm_check_enable;
 
         if (uss_changed)
         {
@@ -350,27 +437,63 @@ private:
             publishBumpEnableStatus();
         }
 
-        if (uss_changed || bump_changed)
+        if (spray_bumper_changed)
+        {
+            publishSprayBumperWebuiStatus();
+
+            if (!spray_bumper_enable)
+            {
+                // Disabling this input must also remove an existing restriction.
+                setSprayBumperRecoveryState(SprayBumperRecoveryState::NORMAL);
+            }
+            else if (spray_bumper_status_ != 0)
+            {
+                // The input was already active while disabled; handle it immediately.
+                setSprayBumperRecoveryState(SprayBumperRecoveryState::WAIT_RELEASE);
+            }
+        }
+
+        if (uss_changed || bump_changed || spray_bumper_changed || rpm_check_changed)
         {
             RCLCPP_INFO_STREAM(this->get_logger(),
                 "Dynamic safety parameters updated: "
-                    << "uss_front_enable="
-                    << uss_front_enable
-                    << ", uss_back_enable="
-                    << uss_back_enable
-                    << ", bump_front_enable="
-                    << bump_front_enable
-                    << ", bump_back_enable="
-                    << bump_back_enable
-                    << ", uss_recovery_thresh="
-                    << hard_dist_thresh
-                    << ", uss_stop_thresh="
-                    << hard_dist_thresh_diag
-                    << ", uss_stop_thresh_side="
-                    << hard_dist_thresh_side);
+                    << "uss_front_enable = " << uss_front_enable << "\n"
+                    << "uss_back_enable = " << uss_back_enable << "\n"
+                    << "bump_front_enable = " << bump_front_enable << "\n"
+                    << "bump_back_enable = " << bump_back_enable << "\n"
+                    << "spray_bumper_enable = " << spray_bumper_enable << "\n"
+                    << "rpm_check_enable = " << rpm_check_enable_ << "\n"
+                    << "uss_recovery_thresh = " << hard_dist_thresh << "\n"
+                    << "uss_stop_thresh = " << hard_dist_thresh_diag << "\n"
+                    << "uss_stop_thresh_side = " << hard_dist_thresh_side);
         }
 
         return result;
+    }
+
+    void publishSpraySafetyStatus()
+    {
+        std_msgs::msg::UInt16 msg;
+        msg.data = static_cast<uint16_t>(spray_bumper_recovery_state_);
+        spray_safety_status_pub_->publish(msg);
+    }
+
+    void publishSprayBumperWebuiStatus()
+    {
+        std_msgs::msg::Bool msg;
+        msg.data = spray_bumper_enable;
+        spray_bumper_webui_pub_->publish(msg);
+    }
+
+    void setSprayBumperRecoveryState(SprayBumperRecoveryState state)
+    {
+        if (spray_bumper_recovery_state_ == state)
+        {
+            return;
+        }
+
+        spray_bumper_recovery_state_ = state;
+        publishSpraySafetyStatus();
     }
 
     void publishUssEnableStatus()
@@ -422,8 +545,20 @@ private:
 
     void update()
     {
-        /*  Fixed update rate to check various safety inputs and broadcast the correct outputs
-         */
+        // Check RPM of CMD and feedback
+        if(rpm_check_enable_)
+        {
+            if(!checkRpm())
+            {
+                cmd_vel_msg.linear.x = 0;
+                cmd_vel_msg.angular.z = 0;
+
+                rpm_check_fail = true;
+
+                RCLCPP_WARN(this->get_logger(), "SF0105: Robot stopped - RPM check failed!");
+            }
+        }
+
         // Check USS recommendation
         if (uss_front_enable || uss_back_enable) // Only consider USS for specific defined safety levels
         {
@@ -431,11 +566,7 @@ private:
             {
                 if (force_stop_type > 0)
                 {
-                    float vel_out = 0;
-                    if (movement_scale) // Scale the movement
-                        vel_out = scaleCmdVel();
-                    else if (movement_limit)
-                        vel_out = limitCmdVel();
+                    float vel_out = limitCmdVel();
 
                     // If it isn't safe to scale, force stop the robot
                     if (vel_out == 0)
@@ -538,10 +669,36 @@ private:
             }
         }
 
+
+
+        if (spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
+        {
+         // no release：no command velocity, no turning, no forward movement
+            cmd_vel_msg.linear.x = 0.0;
+            cmd_vel_msg.angular.z = 0.0;
+        }
+        else if (spray_bumper_recovery_state_ == SprayBumperRecoveryState::REVERSE_ONLY)
+        {
+            if (cmd_vel_msg.linear.x >= 0.0)
+            {
+        // stop forward movement and turning, only allow reverse movement
+                cmd_vel_msg.linear.x = 0.0;
+                cmd_vel_msg.angular.z = 0.0;
+            }
+            else
+            {
+        // only allow reverse movement, stop turning
+                cmd_vel_msg.angular.z = 0.0;
+            }
+        }
+
+
         prev_linear_vel = cmd_vel_msg.linear.x;
         prev_angular_vel = cmd_vel_msg.angular.z;
 
         cmd_vel_pub_->publish(cmd_vel_msg);
+
+        run_buzzer();
 
         // if (30.0*(clock() - t_lastSafetyStatusSent)/CLOCKS_PER_SEC > 1.0)   // Send status every 1 second
 
@@ -646,23 +803,53 @@ private:
         // force_stop_type: 1 - left front; 2 - straight front; 3 - right front
         bool not_safe_f = false;
 
-        time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel); // Check time to reach nearest obstacle to the robot's front
-        if (time_to_collision < time_collision_thresh ||
-            uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
+        // Check time to reach nearest obstacle to the robot's front
+        if(robot_role == "S401")
         {
-            not_safe_f = true;
-            force_stop_type = 2;
+            for(int i = 1; i <= 3; i++)
+            {
+                time_to_collision = (float)(uss_dist_filt.data[i]) / (100.0 * linear_vel);
+                if(time_to_collision < time_collision_thresh ||
+                    (uss_dist_filt.data[i] < hard_dist_thresh_diag && uss_dist_filt.data[i] > 0))
+                {
+                    not_safe_f = true;
+                    force_stop_type = i + 1;
+                    return not_safe_f;
+                }
+            }
+            
+            if(uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 1;
+            }
+            else if (uss_dist_filt.data[4] < hard_dist_thresh_side && uss_dist_filt.data[4] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 5;
+            }
         }
-        else if (uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+        else
         {
-            not_safe_f = true;
-            force_stop_type = 1;
+            time_to_collision = (float)(uss_dist_filt.data[1]) / (100.0 * linear_vel);
+            if (time_to_collision < time_collision_thresh ||
+                uss_dist_filt.data[1] < hard_dist_thresh_diag && uss_dist_filt.data[1] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 2;
+            }
+            else if (uss_dist_filt.data[0] < hard_dist_thresh_side && uss_dist_filt.data[0] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 1;
+            }
+            else if (uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0)
+            {
+                not_safe_f = true;
+                force_stop_type = 3;
+            }
         }
-        else if (uss_dist_filt.data[2] < hard_dist_thresh_side && uss_dist_filt.data[2] > 0)
-        {
-            not_safe_f = true;
-            force_stop_type = 3;
-        }
+
 
         return not_safe_f;
     }
@@ -678,6 +865,9 @@ private:
 
         // force_stop_type: 7 - left back; 6 - straight back; 5 - right back
         bool not_safe_b = false;
+
+        if(robot_role == "S401")
+            return not_safe_b;
 
         time_to_collision = (float)(uss_dist_filt.data[5]) / (-100.0 * linear_vel); // Check time to reach nearest obstacle to the robot's back
         if (time_to_collision < time_collision_thresh ||
@@ -698,6 +888,41 @@ private:
         }
 
         return not_safe_b;
+    }
+
+    bool checkRpm()
+    {
+        if(robot_role == "S401")
+        {
+            for(int wheel = 0; wheel < 4; ++wheel)
+            {
+                float min_cmd_rpm = cmd_rpm_[0][wheel];
+                float max_cmd_rpm = cmd_rpm_[0][wheel];
+                for(int i = 1; i < 10; ++i)
+                {
+                    min_cmd_rpm = std::min(min_cmd_rpm, cmd_rpm_[i][wheel]);
+                    max_cmd_rpm = std::max(max_cmd_rpm, cmd_rpm_[i][wheel]);
+                }
+
+                if(min_cmd_rpm > 0.5 && platform_rpm_[wheel] < min_cmd_rpm * 0.5)
+                {
+                    // 打印
+                    RCLCPP_WARN(this->get_logger(), 
+                        "SF0105: wheel %d, min_cmd_rpm: %f, platform_rpm: %f", wheel, min_cmd_rpm, platform_rpm_[wheel]);
+                    return false;
+                }
+
+                if(max_cmd_rpm < -0.5 && platform_rpm_[wheel] > max_cmd_rpm * 0.5)
+                {
+                    RCLCPP_WARN(this->get_logger(), 
+                        "SF0105: wheel %d, max_cmd_rpm: %f, platform_rpm: %f", wheel, max_cmd_rpm, platform_rpm_[wheel]);
+                    return false;
+                }
+            }
+            
+        }
+
+        return true;
     }
 
     void lightsSafetyOut()
@@ -757,6 +982,8 @@ private:
         /* Automatically releases the robot from its force stopped state if the previously
         detected object is no longer being detected */
 
+        rpm_check_fail = false;
+
         if (force_stop && auto_release && !force_stop_bump)
         {
             // First, check how the robot is moving
@@ -791,35 +1018,20 @@ private:
         }
     }
 
-    float scaleCmdVel()
-    {
-        float vel_scale = 0;
-
-        vel_scale = calcVelScale();
-        cmd_vel_msg.linear.x = vel_scale * cmd_vel_msg.linear.x;
-
-        if (vel_scale > 0)
-            RCLCPP_INFO(this->get_logger(), "SF010%d: Scaling linear velocity by %f", force_stop_type, vel_scale);
-        else
-            RCLCPP_INFO(this->get_logger(), "SF010%d: scaleCmdVel - Force stop by USS!", force_stop_type);
-
-        return vel_scale;
-    }
-
     float limitCmdVel()
     {
-        float vel_scale = 0;
-        vel_scale = calcVelScale();
+        float vel_scale = calcVelScale();
 
         if (cmd_vel_msg.linear.x > vel_scale)
             cmd_vel_msg.linear.x = vel_scale;
         else if (cmd_vel_msg.linear.x < -vel_scale)
             cmd_vel_msg.linear.x = -vel_scale;
 
-        if (vel_scale > 0)
-            RCLCPP_DEBUG(this->get_logger(), "SF010%d: Limiting linear velocity to %f", force_stop_type, vel_scale);
-        else
-            RCLCPP_INFO(this->get_logger(), "SF010%d: limitCmdVel - Force stop by USS!", force_stop_type);
+        if(vel_scale == 0.0)
+        {
+            RCLCPP_INFO(this->get_logger(), "Force stop by USS %d : %d!", 
+                force_stop_type, uss_dist_filt.data[force_stop_type - 1]);
+        }
 
         return vel_scale;
     }
@@ -836,22 +1048,9 @@ private:
         if (force_stop_type > 0)
         {
             int uss_data = uss_dist_filt.data[force_stop_type - 1];
-
-            if (uss_data > 100 || uss_data == 0)
-                vel_scale = 1;
-            else if (uss_data > 53)
-            {
-                vel_scale = log10(float(uss_data - 45) / 6);
-            }
-            else if (uss_data <= 53)
-            {
-                vel_scale = (0.005 * (uss_data - 25));
-            }
-            if (vel_scale < 0)
-            {
-                vel_scale = 0;
-            }
+            vel_scale = std::clamp((uss_data - 25) * 0.005, 0.0, 1.0);
         }
+
         return vel_scale;
     }
 
@@ -901,63 +1100,94 @@ private:
         //  Outputs: publishes filtered USS data to /antobot_safety/uss_dist ROS topic
 
         static constexpr int USS_NUM = 8;
-        static constexpr int WIN_SIZE = 10;
+        static constexpr int WIN_SIZE = 12;
 
-        static uint16_t uss_buf[WIN_SIZE][USS_NUM] = {0};
-        static uint32_t uss_sum[USS_NUM] = {0};
+        static uint16_t uss_buf[WIN_SIZE][USS_NUM];
         static int buf_idx = 0;
         static int buf_cnt = 0;
-
-        if (buf_cnt == WIN_SIZE)
-        {
-            for (int i = 0; i < USS_NUM; i++)
-            {
-                uss_sum[i] -= uss_buf[buf_idx][i];
-            }
-        }
-        else
-        {
-            buf_cnt++;
-        }
 
         for (int i = 0; i < USS_NUM; i++)
         {
             uss_buf[buf_idx][i] = msg.data[i];
-            uss_sum[i] += msg.data[i];
         }
 
+        // 不计算初始值
+        // don't calculate initial data
+        if(buf_cnt < WIN_SIZE)
+        {
+            buf_cnt++;
+            buf_idx = (buf_idx + 1) % WIN_SIZE;
+            return ;
+        }
+        
+        uint32_t uss_avg[USS_NUM];
+        uint32_t dist_sum = 0;
+        int valid_num = 0;
+
+        // 取平均值并滤波
+        // Take the average and filter
+        for (int uss_id = 0; uss_id < USS_NUM; uss_id++)
+        {
+            valid_num = 0;
+            dist_sum = 0;
+            for(int dist_idx = (buf_idx + 2) % WIN_SIZE; dist_idx != buf_idx; dist_idx = (dist_idx + 1) % WIN_SIZE)
+            {
+                if(uss_buf[dist_idx][uss_id] == 1 && 
+                    (uss_buf[(dist_idx + WIN_SIZE - 1) % WIN_SIZE][uss_id] > 20) &&
+                    (uss_buf[(dist_idx + 1) % WIN_SIZE][uss_id] > 20)
+                )
+                {
+                    // The data was affected by water interference; this data was filtered.
+                }
+                else
+                {
+                    dist_sum += uss_buf[dist_idx][uss_id];
+                    valid_num++;
+                }
+            }
+            uss_avg[uss_id] = static_cast<uint16_t>(dist_sum / valid_num);
+        }
+        
         buf_idx = (buf_idx + 1) % WIN_SIZE;
 
-        uint16_t uss_avg[USS_NUM];
-        for (int i = 0; i < USS_NUM; i++)
-        {
-            uss_avg[i] = static_cast<uint16_t>(uss_sum[i] / buf_cnt);
-        }
-
         antobot_platform_msgs::msg::UInt16Array uss_dist_filt_all;
-        uint16_t uss_dist_ar[USS_NUM] = {200};
+        uint16_t uss_dist_ar[USS_NUM] = {200, 200, 200, 200, 200, 200, 200, 200};
 
-        if (uss_back_enable && uss_front_enable)
+        if(robot_role == "S401")
         {
-            uint16_t tmp[USS_NUM] = {
-                uss_avg[0], uss_avg[1], uss_avg[2], 200,
-                uss_avg[4], uss_avg[5], uss_avg[6], 200};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            if(uss_front_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    uss_avg[0], uss_avg[1], uss_avg[2], uss_avg[3],
+                    uss_avg[4], 200, 200, 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
         }
-        else if (uss_front_enable)
+        else
         {
-            uint16_t tmp[USS_NUM] = {
-                uss_avg[0], uss_avg[1], uss_avg[2], 200,
-                200, 200, 200, 200};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            if (uss_back_enable && uss_front_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    uss_avg[0], uss_avg[1], uss_avg[2], 200,
+                    uss_avg[4], uss_avg[5], uss_avg[6], 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
+            else if (uss_front_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    uss_avg[0], uss_avg[1], uss_avg[2], 200,
+                    200, 200, 200, 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
+            else if (uss_back_enable)
+            {
+                uint16_t tmp[USS_NUM] = {
+                    200, 200, 200, 200,
+                    uss_avg[4], uss_avg[5], uss_avg[6], 200};
+                memcpy(uss_dist_ar, tmp, sizeof(tmp));
+            }
         }
-        else if (uss_back_enable)
-        {
-            uint16_t tmp[USS_NUM] = {
-                200, 200, 200, 200,
-                uss_avg[4], uss_avg[5], uss_avg[6], 200};
-            memcpy(uss_dist_ar, tmp, sizeof(tmp));
-        }
+
 
         // -----------------------------
         // Publish
@@ -982,6 +1212,22 @@ private:
 
         if (msg.data)
         {
+
+            if (spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE) 
+            {
+                if (spray_bumper_status_ != 0)
+                {
+                    // collision still exists: only allow reverse to get out of trouble.
+                    setSprayBumperRecoveryState(SprayBumperRecoveryState::REVERSE_ONLY);
+                }
+                else
+                {
+                    // Collision has disappeared, but a collision occurred before;
+                    setSprayBumperRecoveryState(SprayBumperRecoveryState::NORMAL);
+                }
+            }
+
+
             force_stop = false;
             force_stop_release = true;
             force_stop_bump = false;
@@ -1098,6 +1344,36 @@ private:
         }
     }
 
+    void sprayBumperStatusCallback(const std_msgs::msg::UInt16 &msg)
+    {
+        const bool was_active = spray_bumper_status_ != 0;
+        const bool is_active = msg.data != 0;
+    
+        spray_bumper_status_ = msg.data;
+
+        // Continue recording the latest sensor state while disabled, so enabling
+        // the parameter can safely act on an already-active bumper.
+        if (!spray_bumper_enable)
+        {
+            return;
+        }
+    
+        if (!was_active && is_active)
+        {
+            setSprayBumperRecoveryState(SprayBumperRecoveryState::WAIT_RELEASE);
+
+             RCLCPP_WARN_THROTTLE(this->get_logger(),
+                                  *this->get_clock(),
+                                  2000,
+                                  "Spray bumper collision detected: status=0x%04X, entering WAIT_RELEASE",
+                                  static_cast<unsigned int>(spray_bumper_status_));
+        }
+        if (was_active && !is_active && spray_bumper_recovery_state_ == SprayBumperRecoveryState::REVERSE_ONLY)
+        {
+            setSprayBumperRecoveryState(SprayBumperRecoveryState::NORMAL);
+        }
+    }
+
     int getCmdVelType()
     {
         int cmd_vel_type = 0;
@@ -1143,6 +1419,65 @@ private:
             cmd_vel_type = 4;
         }
         return cmd_vel_type;
+    }
+
+    void run_buzzer()
+    {
+        static bool buzzer_on = false;
+
+        // uss, bumper, spray_bumper 
+        if(force_stop_type > 0 || 
+            bump_front_state_ || bump_back_state_ ||
+            spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE ||
+            rpm_check_fail)
+        {
+            if(!buzzer_on)
+            {
+                if(force_stop_type > 0)
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by USS %d!", force_stop_type);
+                }
+                else if(bump_front_state_)
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by Front Bump Switch!");
+                }
+                else if(bump_back_state_)
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by Back Bump Switch!");
+                }
+                else if(spray_bumper_recovery_state_ == SprayBumperRecoveryState::WAIT_RELEASE)
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by Spray bumper");
+                }
+                else if(rpm_check_fail)
+                {
+                    RCLCPP_ERROR(this->get_logger(), "Force stop by RPM check");
+                }
+            }
+                
+
+            // add one frequency limit to avoid buzzer on/off too fast
+            static auto last_buzzer_time = std::chrono::steady_clock::now();
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_buzzer_time).count() < 500)
+                return;
+
+            last_buzzer_time = now;
+            buzzer_on = !buzzer_on;
+            
+
+            std_msgs::msg::Bool buzzer_msg;
+            buzzer_msg.data = buzzer_on;
+            buzzer_pub_->publish(buzzer_msg);
+        }
+        else if(buzzer_on)
+        {
+            // if the speed is positive and the buzzer is currently on, turn off the buzzer
+            std_msgs::msg::Bool buzzer_msg;
+            buzzer_msg.data = false;
+            buzzer_pub_->publish(buzzer_msg);
+            buzzer_on = false;
+        }
     }
 };
 
