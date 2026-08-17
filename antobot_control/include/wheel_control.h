@@ -8,16 +8,19 @@
 
 #include "control_base.h"
 
+enum ControlMode: std::size_t
+{
+    CRAB = 0,
+    COUNTERFACE = 1,
+    DRIVE = 1,
+    SPOTTURN = 2,
+    PARK = 3,
+    LOCK = 3
+};
+
 class WheelControl final : public ControlBase
 {
 public:
-    enum class Mode
-    {
-        CRAB = 0,
-        COUNTERPHASE = 1,
-        SPOTTURN = 2,
-        LOCK = 3
-    };
     WheelControl();
 
 private:
@@ -30,17 +33,20 @@ private:
 
     std::array<Point, 4> wheel_positions() const;
     static double limit_steering(double angle_deg);
-    void on_robot_command(const SpeedCmd &command) override;
+    void publish_control_mode();
+    void on_robot_command(SpeedCmd &cmd) override;
     void mode_callback(const std_msgs::msg::Int32::SharedPtr msg);
     void steering_position_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
     void update_steering_target(const SpeedCmd &command);
     bool motion_enabled() const override;
+    
     void twist_to_rpm(
         const SpeedCmd &command, std::array<double, 4> &output) override;
     bool rpm_to_twist(
         const std::array<double, 4> &feedback, SpeedCmd &twist) const override;
 
-    Mode mode_{Mode::LOCK};
+private:
+    ControlMode mode_{ControlMode::LOCK};
     double wheel_base_{1.156};
     double track_width_{1.1};
     double wheel_radius_{0.203};
@@ -49,5 +55,9 @@ private:
     std::array<double, 4> target_steering_deg_{};
     rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr steering_position_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr mode_sub_;
+
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr steering_command_pub_;
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr mode_pub_;
+
+    rclcpp::TimerBase::SharedPtr mode_pub_timer_;
 };

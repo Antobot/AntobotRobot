@@ -1,6 +1,7 @@
 #include "wheel_control.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -47,16 +48,24 @@ WheelControl::WheelControl()
     wheel_radius_ = get_parameter("wheel_radius").as_double();
     steering_tolerance_deg_ = get_parameter("steering_tolerance_deg").as_double();
 
+    // Sub
     steering_position_sub_ = create_subscription<std_msgs::msg::Float64MultiArray>(
         "/antobot/control/wheelsteer/real_pos_raw", 20,
         std::bind(&WheelControl::steering_position_callback, this, std::placeholders::_1));
     mode_sub_ = create_subscription<std_msgs::msg::Int32>(
         "/antobot/control/wheelsteer/mode", 10,
         std::bind(&WheelControl::mode_callback, this, std::placeholders::_1));
+    
+    // Pub
     steering_command_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>(
         "/antobot/control/wheelsteer/cmd_pos_raw", 20);
+    mode_pub_ = create_publisher<std_msgs::msg::Int32>(
+        "/nats/control_mode", 10);
 
-    mode_ = Mode::LOCK;
+    mode_pub_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(1000),
+            std::bind(&WheelControl::publish_control_mode, this));
+
     update_steering_target({});
 }
 
@@ -89,15 +98,56 @@ double WheelControl::limit_steering(double angle)
     return std::clamp(angle, -90.0, 90.0);
 }
 
-void WheelControl::on_robot_command(const SpeedCmd &value)
+void WheelControl::publish_control_mode()
 {
-    update_steering_target(value);
+    std_msgs::msg::Int32 msg;
+    msg.data = mode_;
+    mode_pub_->publish(msg);
+}
+
+void WheelControl::on_robot_command(SpeedCmd &cmd)
+{
+
+    switch (mode_)
+    {
+    case ControlMode::CRAB:
+        cmd.linear_x = cmd.linear_x;
+        cmd.linear_y = -cmd.linear_y ;
+        break;
+    case ControlMode::DRIVE:
+        cmd.linear_x = cmd.linear_x;
+        cmd.angular_z = -cmd.linear_y;
+    case ControlMode::SPOTTURN:
+        break;
+        cmd.angular_z = -cmd.linear_y;
+        break;
+    case ControlMode::LOCK:
+    default:
+        break;
+    }
+
+    update_steering_target(cmd);
 }
 
 void WheelControl::mode_callback(const std_msgs::msg::Int32::SharedPtr msg)
 {
-    mode_ = static_cast<Mode>(msg->data);
+    ControlMode new_mode = static_cast<ControlMode>(msg->data);
+    if(mode_ == new_mode)
+        return ;
+
+    mode_ = new_mode;
     update_steering_target(command());
+
+    // log
+    static constexpr std::array<std::string_view, 4> mode_names{
+        "CRAB",
+        "DRIVE",
+        "SPOTTURN",
+        "PARK"
+    };
+    RCLCPP_INFO(get_logger(), 
+        "[Control] set mode to %d(%s)", (int)mode_, mode_names[mode_].data()
+    );
 }
 
 void WheelControl::steering_position_callback(
@@ -116,12 +166,12 @@ void WheelControl::steering_position_callback(
 void WheelControl::update_steering_target(const SpeedCmd &value)
 {
     const auto positions = wheel_positions();
-    if (mode_ == Mode::CRAB)
+    if (mode_ == ControlMode::CRAB)
     {
         const double angle = std::hypot(value.linear_x, value.linear_y) > 1e-4 ? rad_to_deg(std::atan2(value.linear_y, value.linear_x)) : 0.0;
         target_steering_deg_.fill(limit_steering(angle));
     }
-    else if (mode_ == Mode::COUNTERPHASE)
+    else if (mode_ == ControlMode::DRIVE)
     {
         for (std::size_t i = 0; i < 4; ++i)
         {
@@ -133,7 +183,7 @@ void WheelControl::update_steering_target(const SpeedCmd &value)
             }
         }
     }
-    else if (mode_ == Mode::SPOTTURN)
+    else if (mode_ == ControlMode::SPOTTURN)
     {
         const double angle = rad_to_deg(std::atan2(wheel_base_, track_width_));
         target_steering_deg_ = {-angle, angle, angle, -angle};
@@ -154,7 +204,7 @@ void WheelControl::update_steering_target(const SpeedCmd &value)
 
 bool WheelControl::motion_enabled() const
 {
-    if (mode_ == Mode::LOCK)
+    if (mode_ == ControlMode::LOCK)
     {
         return false;
     }

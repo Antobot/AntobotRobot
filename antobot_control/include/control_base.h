@@ -66,7 +66,7 @@ protected:
     virtual bool rpm_to_twist(
         const std::array<double, 4> &feedback, SpeedCmd &body_twist) const = 0;
 
-    virtual void on_robot_command(const SpeedCmd &) {}
+    virtual void on_robot_command(SpeedCmd &) {}
     virtual bool motion_enabled() const;
 
     virtual void speed_status_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
