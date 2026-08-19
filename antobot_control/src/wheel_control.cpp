@@ -137,6 +137,7 @@ void WheelControl::mode_callback(const std_msgs::msg::Int32::SharedPtr msg)
 
     mode_ = new_mode;
     update_steering_target(command());
+    publish_control_mode();
 
     // log
     static constexpr std::array<std::string_view, 4> mode_names{
