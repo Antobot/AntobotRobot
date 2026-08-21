@@ -1,9 +1,12 @@
 #include <iostream>
+#include <array>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 #include <cmath>
+#include <algorithm>
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -13,6 +16,7 @@
 #include "std_msgs/msg/int8.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "antobot_platform_msgs/msg/u_int16_array.hpp"
+#include "can_bridge_msgs/msg/obstacle_info.hpp"
 
 #include "rcl_interfaces/msg/set_parameters_result.hpp"
 
@@ -35,6 +39,14 @@ public:
                                                                          std::bind(&AntobotSafety::bumpFrontCallback, this, _1));
         sub_bump_back_ = this->create_subscription<std_msgs::msg::Bool>("/antobridge/bump_back", 10,
                                                                         std::bind(&AntobotSafety::bumpBackCallback, this, _1));
+
+        // new uss
+        sub_uss_motion_state_ = this->create_subscription<std_msgs::msg::Int8>(
+            "/antobridge/uss_motion_state", 10,
+            std::bind(&AntobotSafety::ussMotionStateCallback, this, _1));
+        sub_uss_obstacle_info_ = this->create_subscription<can_bridge_msgs::msg::ObstacleInfo>(
+            "/antobridge/uss_obstacle_info", 10,
+            std::bind(&AntobotSafety::ussObstacleInfoCallback, this, _1));
 
         cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/antobot/robot/cmd_vel", 10);
         uss_dist_filt_pub_ = this->create_publisher<antobot_platform_msgs::msg::UInt16Array>("/antobot/safety/uss_dist", 10);
@@ -159,6 +171,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_release_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_front_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_bump_back_;
+    rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr sub_uss_motion_state_;
+    rclcpp::Subscription<can_bridge_msgs::msg::ObstacleInfo>::SharedPtr sub_uss_obstacle_info_;
 
     size_t count_;
 
@@ -237,6 +251,10 @@ private:
 
     bool bump_front_state_{false};
     bool bump_back_state_{false};
+    int8_t uss_motion_state_{0}; // 0正常, 1要求减速, 2要求停车
+    static constexpr std::size_t kMaxUssObstacleCount = 20U;
+    std::array<can_bridge_msgs::msg::ObstacleInfo, kMaxUssObstacleCount> uss_obstacle_info_;
+    std::array<bool, kMaxUssObstacleCount> uss_obstacle_valid_{};
 
     // bool bump_front_webui_state_{false};
     // bool bump_back_webui_state_{false};
@@ -256,6 +274,27 @@ private:
     geometry_msgs::msg::Point old_pos;*/
 
     // Functions
+    void ussMotionStateCallback(const std_msgs::msg::Int8::SharedPtr msg)
+    {
+        uss_motion_state_ = msg->data;
+    }
+
+    void ussObstacleInfoCallback(const can_bridge_msgs::msg::ObstacleInfo::SharedPtr msg)
+    {
+        const auto obstacle_id = static_cast<std::size_t>(msg->obstacle_id);
+        if (obstacle_id >= uss_obstacle_info_.size())
+        {
+            RCLCPP_WARN_THROTTLE(
+                this->get_logger(), *this->get_clock(), 1000,
+                "USS obstacle ID %zu exceeds maximum supported ID %zu",
+                obstacle_id, uss_obstacle_info_.size() - 1U);
+            return;
+        }
+
+        uss_obstacle_info_[obstacle_id] = *msg;
+        uss_obstacle_valid_[obstacle_id] = true;
+    }
+
     rcl_interfaces::msg::SetParametersResult dynamicParametersCallback(const std::vector<rclcpp::Parameter> &parameters)
     {
         rcl_interfaces::msg::SetParametersResult result;
@@ -538,6 +577,9 @@ private:
             }
         }
 
+        // new uss
+        new_uss_check();
+
         prev_linear_vel = cmd_vel_msg.linear.x;
         prev_angular_vel = cmd_vel_msg.angular.z;
 
@@ -569,6 +611,155 @@ private:
 
         if (30.0 * (clock() - t_release) / (float)CLOCKS_PER_SEC > 0.5)
             force_stop_release = false;
+    }
+
+    void new_uss_check()
+    {
+        if(uss_motion_state_ == 1)
+        {
+            // 减半速
+            cmd_vel_msg.linear.x *= 0.5;
+        }
+        else if(uss_motion_state_ == 2)
+        {
+            // 停车
+            cmd_vel_msg = geometry_msgs::msg::Twist();
+        }
+        else if(uss_motion_state_ == 0)
+        {
+            // USS 未要求减速或停车时，使用障碍物详细信息做额外的碰撞预警。
+            // 目前检查车辆直线前进和直线倒车的情况，转弯轨迹暂不在此处处理。
+            if(cmd_vel_msg.linear.x > 0)
+            {
+                // 障碍物坐标以车辆中心为原点，单位为 mm：
+                // x 轴正方向指向车头，y 轴表示车辆左右方向。
+                // 车长为 1.35 m，因此车头边界位于 x = 675 mm；
+                // 车头宽为 0.6 m，因此车辆正前方区域为 |y| <= 300 mm。
+                constexpr float half_vehicle_length_mm = 1350.0F / 2.0F;
+                constexpr float half_front_width_mm = 600.0F / 2.0F;
+                constexpr float collision_time_sec = 1.0F;
+
+                // 假设车辆未来 1 秒保持当前线速度，计算这段时间内的前进距离。
+                // cmd_vel 的单位为 m/s，乘以 1000 后转换为 mm/s。
+                const float travel_distance_mm =
+                    static_cast<float>(cmd_vel_msg.linear.x) * 1000.0F * collision_time_sec;
+
+                // 数组下标对应障碍物 ID。仅检查已经收到过消息的数组槽位，
+                // 避免尚未初始化的障碍物数据产生误报警。
+                for (std::size_t i = 0; i < uss_obstacle_info_.size(); ++i)
+                {
+                    if (!uss_obstacle_valid_[i])
+                    {
+                        continue;
+                    }
+
+                    const auto & obstacle = uss_obstacle_info_[i];
+                    const float x_mm = static_cast<float>(obstacle.x_mm);
+                    const float y_mm = static_cast<float>(obstacle.y_mm);
+
+                    // 忽略车辆中心后方的障碍物，以及位于车身宽度范围之外的障碍物。
+                    // 通过该筛选的障碍物位于车辆向前运动时可能扫过的区域内。
+                    if (x_mm < 0.0F || std::abs(y_mm) > half_front_width_mm)
+                    {
+                        continue;
+                    }
+
+                    // 根据障碍物 x 坐标计算其到车头边界的纵向间隙。
+                    // 如果障碍物已经位于车身覆盖范围内，间隙按 0 处理。
+                    const float longitudinal_clearance_mm =
+                        std::max(0.0F, x_mm - half_vehicle_length_mm);
+
+                    // 同时参考 USS 上报的 distance_mm。取坐标间隙和传感器距离中
+                    // 较小的有效值，以较保守的距离估算碰撞时间。
+                    // distance_mm 为 0 时视为没有有效的距离值，仅使用坐标间隙。
+                    float collision_distance_mm = longitudinal_clearance_mm;
+                    if (obstacle.distance_mm > 0U)
+                    {
+                        collision_distance_mm = std::min(
+                            collision_distance_mm,
+                            static_cast<float>(obstacle.distance_mm));
+                    }
+
+                    // 当前速度下，1 秒内的前进距离能够覆盖障碍物间隙时，
+                    // 认为存在 1 秒内碰撞风险。日志按 1 秒限频，避免循环刷屏。
+                    if (collision_distance_mm <= travel_distance_mm)
+                    {
+                        const float time_to_collision_sec = collision_distance_mm /
+                            (static_cast<float>(cmd_vel_msg.linear.x) * 1000.0F);
+                        RCLCPP_WARN_THROTTLE(
+                            this->get_logger(), *this->get_clock(), 1000,
+                            "USS obstacle %u may collide with vehicle front in %.2f s: position=(%d, %d) mm, distance=%u mm",
+                            static_cast<unsigned int>(obstacle.obstacle_id),
+                            time_to_collision_sec,
+                            static_cast<int>(obstacle.x_mm),
+                            static_cast<int>(obstacle.y_mm),
+                            static_cast<unsigned int>(obstacle.distance_mm));
+                    }
+                }
+            }
+            else if(cmd_vel_msg.linear.x < 0)
+            {
+                // 障碍物坐标仍以车辆中心为原点，单位为 mm。
+                // 车辆后边界位于 x = -675 mm，车身宽度范围为 |y| <= 300 mm。
+                constexpr float half_vehicle_length_mm = 1350.0F / 2.0F;
+                constexpr float half_vehicle_width_mm = 600.0F / 2.0F;
+                constexpr float collision_time_sec = 1.0F;
+
+                // 倒车速度为负数，取绝对值计算车辆未来 1 秒的倒车距离。
+                const float travel_distance_mm =
+                    std::abs(static_cast<float>(cmd_vel_msg.linear.x)) *
+                    1000.0F * collision_time_sec;
+
+                for (std::size_t i = 0; i < uss_obstacle_info_.size(); ++i)
+                {
+                    if (!uss_obstacle_valid_[i])
+                    {
+                        continue;
+                    }
+
+                    const auto & obstacle = uss_obstacle_info_[i];
+                    const float x_mm = static_cast<float>(obstacle.x_mm);
+                    const float y_mm = static_cast<float>(obstacle.y_mm);
+
+                    // 倒车时仅检查车辆中心后方、且处于车身宽度范围内的障碍物。
+                    if (x_mm > 0.0F || std::abs(y_mm) > half_vehicle_width_mm)
+                    {
+                        continue;
+                    }
+
+                    // 车辆后边界为 -675 mm。例如障碍物位于 x=-1000 mm 时，
+                    // 它到车尾的纵向间隙为 1000-675=325 mm。
+                    // 如果障碍物已经位于车身覆盖范围内，间隙按 0 处理。
+                    const float longitudinal_clearance_mm =
+                        std::max(0.0F, -half_vehicle_length_mm - x_mm);
+
+                    // 同时参考 USS 上报距离，并采用两者中较小的有效值进行保守判断。
+                    // distance_mm 为 0 时仅使用根据坐标计算出的车尾间隙。
+                    float collision_distance_mm = longitudinal_clearance_mm;
+                    if (obstacle.distance_mm > 0U)
+                    {
+                        collision_distance_mm = std::min(
+                            collision_distance_mm,
+                            static_cast<float>(obstacle.distance_mm));
+                    }
+
+                    // 未来 1 秒的倒车距离能够覆盖障碍物间隙时，输出碰撞预警。
+                    if (collision_distance_mm <= travel_distance_mm)
+                    {
+                        const float time_to_collision_sec = collision_distance_mm /
+                            (std::abs(static_cast<float>(cmd_vel_msg.linear.x)) * 1000.0F);
+                        RCLCPP_WARN_THROTTLE(
+                            this->get_logger(), *this->get_clock(), 1000,
+                            "USS obstacle %u may collide with vehicle rear in %.2f s: position=(%d, %d) mm, distance=%u mm",
+                            static_cast<unsigned int>(obstacle.obstacle_id),
+                            time_to_collision_sec,
+                            static_cast<int>(obstacle.x_mm),
+                            static_cast<int>(obstacle.y_mm),
+                            static_cast<unsigned int>(obstacle.distance_mm));
+                    }
+                }
+            }
+        }
     }
 
     bool ussDistSafetyCheck()
